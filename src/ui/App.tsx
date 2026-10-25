@@ -139,7 +139,7 @@ function TopBar() {
   )
 }
 
-/** Bottom left: the ⚙ menu, game name, where you are in the run, and End turn. */
+/** Docked under the side panel: ⚙ menu, game name + where you are in the run, and End turn. */
 function CornerMenu() {
   const [s, dispatch] = useGame()
   const store = useStore()
@@ -147,28 +147,20 @@ function CornerMenu() {
   return (
     <div className="corner-menu">
       <SettingsMenu canReset={s.phase !== 'species'} onReset={() => confirm('Abandon this run and start over?') && store.reset()} />
-      {s.phase === 'turn' && (
-        <button
-          className={`btn ${last ? 'btn-war' : 'btn-primary'} cm-end`}
-          data-help="end-turn"
-          disabled={!canEndTurn(s)}
-          title={last && s.troop.length === 0 ? 'Your troop is empty: marching now forfeits the battle' : undefined}
-          onClick={() => (!last || s.troop.length > 0 || confirm('Your troop is empty. March anyway and forfeit this battle?')) && dispatch(endTurn)}
-        >
-          {last ? 'March to battle' : 'End turn'}
-        </button>
-      )}
       <div className="cm-text">
-        <span className="brand">
-          <span className="brand-mark">⚔</span>
-          <span className="brand-name">Halloween Special</span>
+        <span className="cm-title">
+          <span className="brand">
+            <span className="brand-mark">⚔</span>
+            <span className="brand-name">Halloween Special</span>
+          </span>
+          {s.phase !== 'species' && (
+            <span className="cm-where" data-help="turn">
+              R{s.round + 1} · T{s.turn + 1}/{CONFIG.turnsPerRound}
+            </span>
+          )}
         </span>
         {s.phase !== 'species' && (
-          <span className="cm-run">
-            <span data-help="turn">
-              Round {s.round + 1}/{CONFIG.rounds} · Turn {s.turn + 1}/{CONFIG.turnsPerRound}
-            </span>
-            <ol className="timeline" aria-label="Rounds and turns" data-help="timeline">
+          <ol className="timeline" aria-label="Rounds and turns" data-help="timeline">
             {Array.from({ length: CONFIG.rounds }, (_, r) => (
               <li key={r} className={`tl-round ${r < s.round ? 'past' : r === s.round ? 'now' : ''}`}>
                 {r === s.round && s.phase !== 'over' ? (
@@ -188,10 +180,20 @@ function CornerMenu() {
                 </span>
               </li>
             ))}
-            </ol>
-          </span>
+          </ol>
         )}
       </div>
+      {s.phase === 'turn' && (
+        <button
+          className={`btn ${last ? 'btn-war' : 'btn-primary'} cm-end`}
+          data-help="end-turn"
+          disabled={!canEndTurn(s)}
+          title={last && s.troop.length === 0 ? 'Your troop is empty: marching now forfeits the battle' : undefined}
+          onClick={() => (!last || s.troop.length > 0 || confirm('Your troop is empty. March anyway and forfeit this battle?')) && dispatch(endTurn)}
+        >
+          {last ? 'March to battle' : 'End turn'}
+        </button>
+      )}
     </div>
   )
 }

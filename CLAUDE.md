@@ -80,7 +80,8 @@ src/game/            pure TypeScript, no React. Actions are (state, …args) => 
 src/ui/              React UI; R3F board (board/Board3D.tsx) and battle playback
   App.tsx                  StarCraft-style corners: top-left population badge (dropdown = PopulationTab); top-right a *flat*
                            row of cells for every resource held or produced + food, morale, land, and a "⋯" dropdown
-                           (ResourcesTab); bottom-left CornerMenu (⚙ menu opening upward, End turn, game name, timeline). No left rail.
+                           (ResourcesTab); CornerMenu docked flush at the bottom of the right side panel (⚙ menu opening upward,
+                           game name + R·T, timeline, End turn on the right; `.side-body` has bottom padding for it). No left rail.
   screens/TurnScreen.tsx   board · right tabs (Tile/Muster/Troop/Build/Scout); exports PopulationTab/ResourcesTab for the dropdowns
   board/BuildPanel.tsx     flat build list → detail view with turning 3D model
   help/                    click-to-learn: any non-button element with data-help="key" opens a glossary popover

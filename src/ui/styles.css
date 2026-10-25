@@ -337,18 +337,65 @@ small {
   color: var(--blood);
 }
 
-/* bottom left: settings, game name, run progress */
+/* docked under the right side panel, flush with its edges: settings, End turn, game name, run progress */
 .corner-menu {
   position: fixed;
-  left: 12px;
-  bottom: 12px;
+  right: 0;
+  bottom: 0;
+  width: 420px;
   z-index: 120;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 12px 6px 6px;
-  background: rgba(17, 14, 12, 0.88);
-  border: 1px solid var(--line);
+  padding: 8px 12px 8px 8px;
+  background: #15110e;
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+@media (max-width: 1280px) {
+  .corner-menu {
+    width: 360px;
+  }
+}
+
+.corner-menu .cm-text {
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+}
+
+.corner-menu .cm-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.corner-menu .cm-where {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--bone-dim);
+}
+
+/* compact timeline so five rounds fit beside the buttons */
+.corner-menu .timeline {
+  gap: 5px;
+  flex-wrap: nowrap;
+}
+
+.corner-menu .tl-round {
+  gap: 2px;
+}
+
+.corner-menu .tl-battle {
+  font-size: 11px;
+  margin-left: 0;
+}
+
+.corner-menu .cm-end {
+  flex: none;
 }
 
 .corner-menu .cm-text {
@@ -365,17 +412,6 @@ small {
   font-size: 15px;
 }
 
-.corner-menu .cm-run {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 11.5px;
-  color: var(--bone-dim);
-}
-
-.corner-menu .timeline {
-  gap: 8px;
-}
 
 /* the settings menu opens upward from the corner */
 .corner-menu .settings-menu {

@@ -132,8 +132,9 @@
 
 /* side body: tabs fill the height; content scrolls only if it truly must */
 
+/* bottom padding leaves room for the corner menu docked under the side panel */
 .side-body {
-  padding: 12px 14px 16px;
+  padding: 12px 14px 76px;
 }
 
 /* build tab */
