@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
-import { CLASS_DEFS, ELEMENT_DEFS, unitPower, unitStats, type Unit } from '../../game'
-import { CLASS_GLYPH, ELEMENT_COLOR, RARITY_COLOR } from '../theme'
+import { AFFINITY_LABEL, TYPE_DEFS, affinityEntries, primaryAffinity, unitPower, unitStats, type AffinityPoints, type Unit } from '../../game'
+import { AFFINITY_COLOR, AFFINITY_GLYPH, RARITY_COLOR, TYPE_GLYPH } from '../theme'
 
 interface Props {
   unit: Unit
@@ -11,24 +11,22 @@ interface Props {
 
 export function UnitCard({ unit, footer, compact, dim }: Props) {
   const stats = unitStats(unit)
-  const cls = CLASS_DEFS[unit.cls]
-  const el = ELEMENT_DEFS[unit.element]
+  const type = TYPE_DEFS[unit.type]
   return (
     <article
       className={`unit-card ${compact ? 'compact' : ''} ${dim ? 'dim' : ''}`}
-      style={{ '--rarity': RARITY_COLOR[unit.rarity], '--element': ELEMENT_COLOR[unit.element] } as React.CSSProperties}
-      title={`${cls.abilityLabel}: ${cls.abilityText}\n${el.label}: ${el.passiveText}`}
+      style={{ '--rarity': RARITY_COLOR[unit.rarity], '--element': AFFINITY_COLOR[primaryAffinity(unit.affinities)] } as React.CSSProperties}
+      title={`${type.label} (${type.damage} damage) · ${type.abilityLabel}: ${type.abilityText}`}
     >
       <div className="uc-head">
         <span className="uc-glyph" aria-hidden>
-          {CLASS_GLYPH[unit.cls]}
+          {TYPE_GLYPH[unit.type]}
         </span>
         <div className="uc-id">
           <div className="uc-name">{unit.name}</div>
           <div className="uc-tags">
             <span className="uc-rarity">{unit.rarity}</span>
-            <span>{el.label}</span>
-            <span>{cls.label}</span>
+            <span>{type.label}</span>
           </div>
         </div>
         <div className="uc-level" title={`Level ${unit.level}${unit.battlesSurvived ? ` · survived ${unit.battlesSurvived}` : ''}`}>
@@ -37,6 +35,7 @@ export function UnitCard({ unit, footer, compact, dim }: Props) {
           {unit.battlesSurvived > 0 && <i className="uc-vet">{'★'.repeat(Math.min(3, unit.battlesSurvived))}</i>}
         </div>
       </div>
+      <AffinityChips points={unit.affinities} />
       {!compact && (
         <dl className="uc-stats">
           <Stat k="HP" v={stats.hp} />
@@ -48,6 +47,20 @@ export function UnitCard({ unit, footer, compact, dim }: Props) {
       )}
       {footer && <div className="uc-foot">{footer}</div>}
     </article>
+  )
+}
+
+export function AffinityChips({ points }: { points: AffinityPoints }) {
+  return (
+    <div className="aff-chips">
+      {affinityEntries(points).map(([a, n]) => (
+        <span key={a} className="aff-chip" style={{ '--aff': AFFINITY_COLOR[a] } as React.CSSProperties}>
+          <i>{AFFINITY_GLYPH[a]}</i>
+          {AFFINITY_LABEL[a]}
+          <b>{n}</b>
+        </span>
+      ))}
+    </div>
   )
 }
 

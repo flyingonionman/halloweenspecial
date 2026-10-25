@@ -7,14 +7,14 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
-import { CONFIG, FRAME_STRIDE, type CombatResult, type UnitClass } from '../../game'
-import { ELEMENT_COLOR, RARITY_COLOR, TEAM_COLOR } from '../theme'
+import { CONFIG, FRAME_STRIDE, RARITIES, primaryAffinity, type CombatResult, type UnitType } from '../../game'
+import { AFFINITY_COLOR, RARITY_COLOR, TEAM_COLOR } from '../theme'
 
 const { fieldWidth: W, fieldHeight: H } = CONFIG.combat
 
-/** Polygon side count per class, so silhouettes read without text. */
-const CLASS_SIDES: Record<UnitClass, number> = { knight: 4, rider: 3, mage: 5, archer: 7, cleric: 32, rogue: 6 }
-const CLASS_ROT: Record<UnitClass, number> = { knight: Math.PI / 4, rider: Math.PI / 2, mage: Math.PI / 2, archer: 0, cleric: 0, rogue: 0 }
+/** Silhouette = unit type, fill = primary affinity, trim = rarity, outer ring = team. */
+const TYPE_SIDES: Record<UnitType, number> = { fighter: 3, tank: 4, ranger: 7, mage: 5, healer: 32 }
+const TYPE_ROT: Record<UnitType, number> = { fighter: Math.PI / 2, tank: Math.PI / 4, ranger: 0, mage: Math.PI / 2, healer: 0 }
 
 export interface PlaybackClock {
   /** Seconds of sim time elapsed. */
@@ -209,11 +209,11 @@ function Units({ result, clock, onTick }: Props) {
       {result.roster.map((r, i) => (
         <UnitMesh
           key={r.id}
-          cls={r.cls}
-          element={ELEMENT_COLOR[r.element]}
+          type={r.type}
+          element={AFFINITY_COLOR[primaryAffinity(r.affinities)]}
           trim={RARITY_COLOR[r.rarity]}
           team={TEAM_COLOR[r.team]}
-          scale={0.85 + 0.06 * ['common', 'uncommon', 'rare', 'epic', 'legendary'].indexOf(r.rarity)}
+          scale={0.85 + 0.06 * RARITIES.indexOf(r.rarity)}
           onRefs={(refsForUnit) => (refs.current[i] = refsForUnit)}
         />
       ))}
@@ -227,14 +227,14 @@ function setBar(mesh: THREE.Mesh, frac: number) {
 }
 
 function UnitMesh({
-  cls,
+  type,
   element,
   trim,
   team,
   scale,
   onRefs,
 }: {
-  cls: UnitClass
+  type: UnitType
   element: string
   trim: string
   team: string
@@ -270,8 +270,8 @@ function UnitMesh({
     return () => onRefs(null)
   }, [mats, onRefs])
 
-  const sides = CLASS_SIDES[cls]
-  const rot = CLASS_ROT[cls]
+  const sides = TYPE_SIDES[type]
+  const rot = TYPE_ROT[type]
 
   return (
     <group ref={group}>

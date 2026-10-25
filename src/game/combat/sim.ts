@@ -1,17 +1,24 @@
 /**
- * Layer 3 of the unit model: CombatUnit, a unit's transient state inside one fight.
+ * CombatUnit is a unit's transient state inside one fight.
  *
- * The sim is a fixed-timestep, seeded, renderer-agnostic function: two troops
+ * The sim is a fixed-timestep, seeded, renderer-agnostic function: two sides
  * in, a full timeline out. Renderers just play the frames back, so the same
  * result can be drawn in 2D, 3D, or not at all (tests, AI-vs-AI balancing).
  */
 import { CONFIG, type Rarity } from '../config'
 import { Rng } from '../rng'
-import { CLASS_DEFS, isMelee, type AbilityId, type Element, type UnitClass } from '../units/archetypes'
-import { tagsOf, type Unit } from '../units/unit'
+import { TYPE_DEFS, isRanged, type AbilityId, type DamageKind, type UnitType } from '../units/types'
+import type { Unit } from '../units/unit'
+import type { AffinityPoints } from '../affinities'
+import type { TeamBonuses } from '../world/city'
 import { combatStats, computeSynergies, type CombatStats } from '../synergy'
 
 export type Team = 0 | 1
+
+export interface CombatSide {
+  units: readonly Unit[]
+  bonuses?: TeamBonuses
+}
 
 export interface CombatUnit {
   id: number
@@ -26,6 +33,8 @@ export interface CombatUnit {
   cooldown: number
   targetId: number | null
   alive: boolean
+  slow: number
+  slowUntil: number
 }
 
 export interface RosterEntry {
@@ -33,8 +42,8 @@ export interface RosterEntry {
   team: Team
   uid: string
   name: string
-  cls: UnitClass
-  element: Element
+  type: UnitType
+  affinities: AffinityPoints
   rarity: Rarity
   level: number
   maxHp: number
@@ -45,7 +54,7 @@ export interface RosterEntry {
 export const FRAME_STRIDE = 5
 
 export type CombatEvent =
-  | { t: number; kind: 'attack'; from: number; to: number; amount: number; crit: boolean }
+  | { t: number; kind: 'attack'; from: number; to: number; amount: number; crit: boolean; damage: DamageKind }
   | { t: number; kind: 'ability'; from: number; ability: AbilityId; targets: number[] }
   | { t: number; kind: 'heal'; from: number; to: number; amount: number }
   | { t: number; kind: 'death'; id: number }
@@ -63,28 +72,30 @@ export interface CombatResult {
 
 const { tick: DT, fieldWidth: W, fieldHeight: H } = CONFIG.combat
 
-function deploy(troop: readonly Unit[], team: Team, firstId: number): CombatUnit[] {
-  const synergies = computeSynergies(troop)
-  const melee = troop.filter((u) => isMelee(u.cls))
-  const ranged = troop.filter((u) => !isMelee(u.cls))
-  const side = team === 0 ? -1 : 1
+function deploy(side: CombatSide, team: Team, firstId: number): CombatUnit[] {
+  const synergies = computeSynergies(side.units, side.bonuses?.affinityLevels)
+  const melee = side.units.filter((u) => !isRanged(u.type))
+  const ranged = side.units.filter((u) => isRanged(u.type))
+  const dir = team === 0 ? -1 : 1
   const out: CombatUnit[] = []
   const line = (group: Unit[], depth: number) =>
     group.forEach((unit, i) => {
-      const stats = combatStats(unit, synergies)
+      const stats = combatStats(unit, synergies, side.bonuses)
       out.push({
         id: firstId + out.length,
         team,
         unit,
         stats,
         hp: stats.hp,
-        shield: 0,
+        shield: stats.hp * stats.startShield,
         energy: 0,
-        x: W / 2 + side * depth,
-        y: H / 2 + (i - (group.length - 1) / 2) * 1.8,
+        x: W / 2 + dir * depth,
+        y: H / 2 + (i - (group.length - 1) / 2) * 1.6,
         cooldown: 0,
         targetId: null,
         alive: true,
+        slow: 0,
+        slowUntil: 0,
       })
     })
   line(melee, 4)
@@ -92,10 +103,10 @@ function deploy(troop: readonly Unit[], team: Team, firstId: number): CombatUnit
   return out
 }
 
-export function simulateCombat(teamA: readonly Unit[], teamB: readonly Unit[], seed: number): CombatResult {
+export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: number): CombatResult {
   const rng = new Rng(seed)
-  const a = deploy(teamA, 0, 0)
-  const units = [...a, ...deploy(teamB, 1, a.length)]
+  const a = deploy(sideA, 0, 0)
+  const units = [...a, ...deploy(sideB, 1, a.length)]
   const events: CombatEvent[] = []
   const frames: Float32Array[] = []
   let t = 0
@@ -103,6 +114,7 @@ export function simulateCombat(teamA: readonly Unit[], teamB: readonly Unit[], s
   const dist = (p: CombatUnit, q: CombatUnit) => Math.hypot(p.x - q.x, p.y - q.y)
   const enemiesOf = (u: CombatUnit) => units.filter((o) => o.alive && o.team !== u.team)
   const alliesOf = (u: CombatUnit) => units.filter((o) => o.alive && o.team === u.team)
+  const slowFactor = (u: CombatUnit) => (t < u.slowUntil ? 1 - u.slow : 1)
 
   const nearest = (u: CombatUnit, pool: CombatUnit[]) => {
     let best: CombatUnit | null = null
@@ -114,86 +126,102 @@ export function simulateCombat(teamA: readonly Unit[], teamB: readonly Unit[], s
     return best
   }
 
-  const cohesive = (u: CombatUnit) => {
-    const c = u.stats.cohesion
-    if (!c) return false
-    return units.some((o) => o !== u && o.alive && o.team === u.team && tagsOf(o.unit).includes(c.tag) && dist(u, o) <= c.radius)
-  }
-
-  const attackPower = (u: CombatUnit) => u.stats.atk * (cohesive(u) ? 1 + u.stats.cohesion!.atkBonus : 1)
-
   const record = () => {
     const f = new Float32Array(units.length * FRAME_STRIDE)
-    units.forEach((u, i) => {
-      f.set([u.x, u.y, u.hp, u.shield, u.energy], i * FRAME_STRIDE)
-    })
+    units.forEach((u, i) => f.set([u.x, u.y, u.hp, u.shield, u.energy], i * FRAME_STRIDE))
     frames.push(f)
   }
 
-  const damage = (src: CombatUnit, tgt: CombatUnit, raw: number, crit = false) => {
+  const gainEnergy = (u: CombatUnit, amount: number) => {
+    u.energy = Math.min(u.stats.maxEnergy, u.energy + amount * u.stats.energyGain)
+  }
+
+  const heal = (src: CombatUnit, tgt: CombatUnit, amount: number) => {
+    const healed = Math.min(tgt.stats.hp - tgt.hp, amount)
+    if (healed <= 0) return
+    tgt.hp += healed
+    events.push({ t, kind: 'heal', from: src.id, to: tgt.id, amount: Math.round(healed) })
+  }
+
+  /** Applies mitigation, shields, death. `onHit` triggers lifesteal/slow/thorns (not for reflected damage). */
+  const damage = (src: CombatUnit, tgt: CombatUnit, raw: number, kind: DamageKind, crit = false, onHit = true): number => {
     if (!tgt.alive) return 0
-    const mitigation = 100 / (100 + tgt.stats.def)
-    const reduction = cohesive(tgt) ? tgt.stats.cohesion!.damageReduction : 0
-    let amount = raw * mitigation * (1 - reduction) * (crit ? 2 : 1)
+    const def = kind === 'magic' ? tgt.stats.def * CONFIG.combat.magicDefFactor : tgt.stats.def
+    let amount = raw * (100 / (100 + def)) * (1 - tgt.stats.damageReduction) * (crit ? 2 : 1)
     const absorbed = Math.min(tgt.shield, amount)
     tgt.shield -= absorbed
     tgt.hp -= amount - absorbed
-    tgt.energy = Math.min(tgt.stats.maxEnergy, tgt.energy + CONFIG.combat.energyPerHit)
-    amount = Math.round(amount)
-    events.push({ t, kind: 'attack', from: src.id, to: tgt.id, amount, crit })
+    gainEnergy(tgt, CONFIG.combat.energyPerHit)
+    events.push({ t, kind: 'attack', from: src.id, to: tgt.id, amount: Math.round(amount), crit, damage: kind })
+
+    if (onHit) {
+      if (src.stats.lifesteal > 0 && src.alive) heal(src, src, amount * src.stats.lifesteal)
+      if (src.stats.slowOnHit > 0) {
+        tgt.slow = Math.max(tgt.slowUntil > t ? tgt.slow : 0, src.stats.slowOnHit)
+        tgt.slowUntil = t + CONFIG.combat.slowSeconds
+      }
+      if (tgt.stats.thorns > 0 && src.alive) damage(tgt, src, amount * tgt.stats.thorns, 'magic', false, false)
+    }
+
     if (tgt.hp <= 0) {
       tgt.hp = 0
       tgt.alive = false
       events.push({ t, kind: 'death', id: tgt.id })
     }
+    amount = Math.round(amount)
     return amount
   }
 
+  const basicAttack = (u: CombatUnit, target: CombatUnit) => {
+    const crit = rng.chance(u.stats.critChance)
+    damage(u, target, u.stats.atk, u.stats.damage, crit)
+    if (u.stats.bonusMagic > 0 && target.alive) damage(u, target, u.stats.atk * u.stats.bonusMagic, 'magic', false, false)
+  }
+
   const cast = (u: CombatUnit, target: CombatUnit) => {
-    const ability = CLASS_DEFS[u.unit.cls].ability
-    const power = attackPower(u) * u.stats.spellPower
+    const ability = TYPE_DEFS[u.unit.type].ability
+    const power = u.stats.atk * u.stats.spellPower
+    const kind = u.stats.damage
     const hit: number[] = []
     switch (ability) {
-      case 'bulwark':
-        u.shield += u.stats.hp * 0.3 * u.stats.spellPower
-        hit.push(u.id)
-        break
-      case 'charge':
-        damage(u, target, power * 2.2)
+      case 'cleave':
+        damage(u, target, power * 1.7, kind)
         hit.push(target.id)
+        for (const e of enemiesOf(u)) {
+          if (e !== target && dist(e, target) <= 1.6) {
+            damage(u, e, power, kind)
+            hit.push(e.id)
+          }
+        }
+        break
+      case 'taunt':
+        u.shield += u.stats.hp * 0.25 * u.stats.spellPower
+        for (const e of enemiesOf(u)) {
+          if (dist(e, u) <= 4) {
+            e.targetId = u.id
+            hit.push(e.id)
+          }
+        }
         break
       case 'blast':
         for (const e of enemiesOf(u)) {
           if (dist(e, target) <= 2) {
-            damage(u, e, power * 1.8)
+            damage(u, e, power * 1.8, kind)
             hit.push(e.id)
           }
         }
         break
       case 'volley':
         for (const e of enemiesOf(u).sort((p, q) => dist(u, p) - dist(u, q)).slice(0, 3)) {
-          damage(u, e, power * 1.3)
+          damage(u, e, power * 1.3, kind)
           hit.push(e.id)
         }
         break
       case 'mend': {
         const ally = alliesOf(u).sort((p, q) => p.hp / p.stats.hp - q.hp / q.stats.hp)[0]
         if (ally) {
-          const amount = Math.min(ally.stats.hp - ally.hp, (ally.stats.hp * 0.18 + attackPower(u) * 1.5) * u.stats.spellPower)
-          ally.hp += amount
+          heal(u, ally, ally.stats.hp * 0.18 * u.stats.spellPower + power * 1.5)
           hit.push(ally.id)
-          events.push({ t, kind: 'heal', from: u.id, to: ally.id, amount: Math.round(amount) })
-        }
-        break
-      }
-      case 'backstab': {
-        const prey = enemiesOf(u).sort((p, q) => p.hp - q.hp)[0]
-        if (prey) {
-          u.x = clampX(prey.x + (prey.team === 1 ? 0.8 : -0.8))
-          u.y = prey.y
-          u.targetId = prey.id
-          damage(u, prey, power * 2.5, rng.chance(u.stats.critChance))
-          hit.push(prey.id)
         }
         break
       }
@@ -202,7 +230,8 @@ export function simulateCombat(teamA: readonly Unit[], teamB: readonly Unit[], s
   }
 
   const act = (u: CombatUnit) => {
-    u.cooldown -= DT
+    const slow = slowFactor(u)
+    u.cooldown -= DT * slow
     let target = u.targetId === null ? null : units[u.targetId]!
     if (!target?.alive) {
       target = nearest(u, enemiesOf(u))
@@ -212,16 +241,16 @@ export function simulateCombat(teamA: readonly Unit[], teamB: readonly Unit[], s
 
     const d = dist(u, target)
     if (d > u.stats.range) {
-      const step = Math.min(u.stats.moveSpeed * DT, d - u.stats.range + 0.01)
+      const step = Math.min(u.stats.moveSpeed * slow * DT, d - u.stats.range + 0.01)
       u.x += ((target.x - u.x) / d) * step
       u.y += ((target.y - u.y) / d) * step
     } else if (u.cooldown <= 0) {
-      damage(u, target, attackPower(u), rng.chance(u.stats.critChance))
-      u.energy = Math.min(u.stats.maxEnergy, u.energy + CONFIG.combat.energyPerAttack)
-      u.cooldown = 1 / u.stats.atkSpeed
+      basicAttack(u, target)
+      gainEnergy(u, CONFIG.combat.energyPerAttack)
+      u.cooldown = rng.chance(u.stats.doubleStrike) ? 0.15 : 1 / u.stats.atkSpeed
     }
 
-    if (u.energy >= u.stats.maxEnergy && target.alive) {
+    if (u.alive && u.energy >= u.stats.maxEnergy && target.alive) {
       u.energy = 0
       cast(u, target)
     }
@@ -248,7 +277,7 @@ export function simulateCombat(teamA: readonly Unit[], teamB: readonly Unit[], s
       }
     }
     for (const u of units) {
-      u.x = clampX(u.x)
+      u.x = Math.min(W - 0.5, Math.max(0.5, u.x))
       u.y = Math.min(H - 0.5, Math.max(0.5, u.y))
     }
   }
@@ -270,8 +299,7 @@ export function simulateCombat(teamA: readonly Unit[], teamB: readonly Unit[], s
   if (!teamAlive(1) && teamAlive(0)) winner = 0
   else if (!teamAlive(0) && teamAlive(1)) winner = 1
   else {
-    const health = (team: Team) =>
-      units.filter((u) => u.team === team).reduce((sum, u) => sum + u.hp / u.stats.hp, 0)
+    const health = (team: Team) => units.filter((u) => u.team === team).reduce((sum, u) => sum + u.hp / u.stats.hp, 0)
     const [h0, h1] = [health(0), health(1)]
     winner = Math.abs(h0 - h1) < 1e-6 ? 'draw' : h0 > h1 ? 0 : 1
   }
@@ -286,8 +314,8 @@ export function simulateCombat(teamA: readonly Unit[], teamB: readonly Unit[], s
       team: u.team,
       uid: u.unit.uid,
       name: u.unit.name,
-      cls: u.unit.cls,
-      element: u.unit.element,
+      type: u.unit.type,
+      affinities: u.unit.affinities,
       rarity: u.unit.rarity,
       level: u.unit.level,
       maxHp: u.stats.hp,
@@ -300,8 +328,4 @@ export function simulateCombat(teamA: readonly Unit[], teamB: readonly Unit[], s
       units.filter((u) => u.alive && u.team === 1).map((u) => u.unit.uid),
     ],
   }
-}
-
-function clampX(x: number) {
-  return Math.min(W - 0.5, Math.max(0.5, x))
 }

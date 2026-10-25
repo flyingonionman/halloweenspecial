@@ -592,36 +592,201 @@ small {
 
 .synergies li {
   display: grid;
-  grid-template-columns: 38px 1fr;
-  column-gap: 8px;
-  padding: 6px 8px;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  padding: 7px 9px;
   border: 1px solid var(--line-soft);
   color: var(--bone-faint);
+}
+
+.synergies li.compound {
+  border-style: dashed;
 }
 
 .synergies li.active {
   color: var(--bone);
   border-color: color-mix(in srgb, var(--ember) 50%, var(--line));
+  border-style: solid;
   background: rgba(224, 105, 47, 0.07);
 }
 
-.syn-count {
-  grid-row: span 2;
-  font-family: var(--mono);
-  font-size: 18px;
+.synergies li.active.compound {
+  border-color: color-mix(in srgb, var(--gold) 55%, var(--line));
+  background: rgba(233, 180, 76, 0.07);
+}
+
+.syn-tier {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  gap: 3px;
   align-self: center;
 }
 
-.synergies li.active .syn-count {
-  color: var(--ember-hot);
+.syn-tier i {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--bone-faint);
+  transform: rotate(45deg);
+}
+
+.syn-tier i.on {
+  background: var(--ember);
+  border-color: var(--ember-hot);
+}
+
+.compound .syn-tier i.on {
+  background: var(--gold);
+  border-color: #ffd27a;
 }
 
 .syn-name {
+  grid-column: 1;
+  grid-row: 1;
   font-weight: 700;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.syn-level {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--bone-faint);
+}
+
+.syn-points {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
 }
 
 .syn-text {
+  grid-column: 1 / -1;
   font-size: 12.5px;
+}
+
+.troop .aff-chips {
+  margin-bottom: 8px;
+}
+
+/* ── Affinity chips ─────────────────────────────────────── */
+
+.aff-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.aff-chip {
+  --aff: #999;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px 1px 5px;
+  font-size: 11.5px;
+  border: 1px solid color-mix(in srgb, var(--aff) 45%, transparent);
+  background: color-mix(in srgb, var(--aff) 10%, transparent);
+  color: color-mix(in srgb, var(--aff) 70%, var(--bone));
+}
+
+.aff-chip i {
+  font-style: normal;
+  color: var(--aff);
+}
+
+.aff-chip b {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--bone);
+}
+
+/* ── Species ────────────────────────────────────────────── */
+
+.species {
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 56px 24px;
+  text-align: center;
+}
+
+.species-title {
+  font-family: var(--display);
+  font-weight: normal;
+  font-size: 64px;
+  line-height: 1;
+  margin: 8px 0 12px;
+}
+
+.species-lede {
+  margin-bottom: 32px;
+}
+
+.species-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  width: min(1000px, 100%);
+}
+
+.species-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 18px 18px 20px;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: linear-gradient(160deg, var(--ink-3), var(--ink-2) 70%);
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    transform 0.2s,
+    box-shadow 0.2s;
+  animation: card-in 0.5s ease-out both;
+}
+
+.species-card:hover {
+  border-color: var(--ember);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(224, 105, 47, 0.12);
+}
+
+.species-glyph {
+  font-size: 30px;
+  color: var(--ember);
+  line-height: 1;
+}
+
+.species-name {
+  font-family: var(--display);
+  font-size: 24px;
+}
+
+.species-text {
+  color: var(--bone-dim);
+  font-size: 14px;
+}
+
+.species-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--ember);
+  background: var(--ink-2);
+}
+
+.species-banner .species-name {
+  font-size: 20px;
 }
 
 /* ── Civilization ──────────────────────────────────────── */
@@ -754,8 +919,22 @@ small {
   flex: 1;
 }
 
-.building .btn {
-  align-self: flex-start;
+.building[style] .b-pips i.on {
+  background: var(--aff);
+  border-color: var(--aff);
+}
+
+.b-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.b-note {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--bone-faint);
 }
 
 /* ── Battle ────────────────────────────────────────────── */
@@ -1041,17 +1220,6 @@ small {
   }
   .vitals {
     margin-left: 0;
-  }
-  .era {
-    grid-template-columns: 1fr;
-    overflow-y: auto;
-  }
-  .era-main {
-    min-height: 70vh;
-  }
-  .troop {
-    border-left: none;
-    border-top: 1px solid var(--line);
   }
   .battle-body {
     grid-template-columns: 1fr;
