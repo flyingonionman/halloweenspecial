@@ -23,6 +23,10 @@ import {
   canCallMuster,
   canRecruit,
   canTrade,
+  SITE_DEFS,
+  exploreSite,
+  siteBlock,
+  siteReachable,
   canUpgradeBuilding,
   city,
   civTier,
@@ -46,12 +50,15 @@ import {
   tierProgress,
   tileAt,
   trade,
+  tradeRate,
   upgradeBuilding,
   type BuildingId,
   type GameState,
   type Hex,
   type Material,
   type BuildBlock,
+  type SiteBlock,
+  type Tile,
   type BuildingDef,
   type Outputs,
   type ResourceId,
@@ -61,7 +68,7 @@ import { Board3D, type TileOverlay, type TilePreview } from '../board/Board3D'
 import { BuildPanel } from '../board/BuildPanel'
 import { ArmyPanel } from '../components/TroopPanel'
 import { AcademyPanel } from '../components/AcademyPanel'
-import { useRequirementCheck } from '../toast'
+import { deny, showToast, useRequirementCheck } from '../toast'
 import { BuildingGlyph, CostChips } from '../components/BuildingBits'
 import { fmtOutputs, outputParts, outputScore } from '../format'
 import { AFFINITY_COLOR, AFFINITY_GLYPH, KIND_COLOR, PLAIN_COLOR, RARITY_COLOR, RESOURCE_COLOR, RESOURCE_GLYPH, TERRAIN_COLOR, fmtPop } from '../theme'
@@ -467,9 +474,10 @@ const CLAIM_REASON = {
 } as const
 
 /** Opened from the Trading Post's tile. */
-function TradeBox() {
+/** A Trading Post's trade, or a caravan's 1:1 (`at`). */
+function TradeBox({ at }: { at?: Hex }) {
   const [s, dispatch] = useGame()
-  const rate = city(s).tradeRate
+  const rate = tradeRate(s, at)
   const [give, setGive] = useState<Material>('stone')
   const [get, setGet] = useState<Material>('fire')
   if (rate === null) return null
@@ -494,7 +502,7 @@ function TradeBox() {
             </option>
           ))}
         </select>
-        <button className="btn btn-small" disabled={!canTrade(s, give, get)} onClick={() => dispatch((st) => trade(st, give, get))}>
+        <button className="btn btn-small" disabled={!canTrade(s, give, get, at)} onClick={() => dispatch((st) => trade(st, give, get, at))}>
           Trade
         </button>
       </div>
@@ -626,6 +634,8 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
         </div>
       )}
 
+      {t.site && <SiteCard tile={t} />}
+
       {t.camp && (
         <div className="camp-card" data-help="camp">
           <h4>
@@ -699,6 +709,61 @@ function BuildOptions({ hex }: { hex: Hex }) {
   )
 }
 
+const SITE_REASON: Record<Exclude<NonNullable<SiteBlock>, 'cost'>, string> = {
+  'no-site': 'Nothing here.',
+  unreachable: 'Out of reach: claim land next to it first.',
+  morale: 'Not enough morale.',
+  'no-room': 'Your troop and bench are full.',
+  'no-troop': 'You need a troop to fight.',
+  'no-academy': 'You need a dedicated academy below its top level.',
+}
+
+/** A site's choice card. Leaving is free: just don't choose. */
+function SiteCard({ tile }: { tile: Tile }) {
+  const [s, dispatch] = useGame()
+  const check = useRequirementCheck()
+  const def = SITE_DEFS[tile.site!]
+  const reachable = siteReachable(s, tile)
+  return (
+    <div className={`site-card ${def.far ? 'far' : ''}`} data-help="site">
+      <h4>
+        {def.glyph} {def.name} <small>{def.far ? 'far · risky' : 'near'}</small>
+      </h4>
+      <p className="muted">{def.text}</p>
+      {!reachable && <p className="muted">{SITE_REASON.unreachable}</p>}
+      {reachable && def.id === 'caravan' && <TradeBox at={tile} />}
+      {def.options.map((o, i) => (
+        <div key={i} className="site-opt">
+          <button
+            className="btn btn-small"
+            disabled={!reachable}
+            onClick={(e) => {
+              const block = siteBlock(s, tile, i)
+              if (block === 'cost') return void check(e.currentTarget, o.cost!)
+              if (block) return deny(e.currentTarget, block === 'morale' ? `You are missing ${o.morale! - s.morale} morale.` : SITE_REASON[block])
+              const next = exploreSite(s, tile, i)
+              dispatch(() => next)
+              // The fight itself plays out on the battle screen; anything else, say what happened.
+              if (next.phase === 'turn') showToast(next.log.at(-1)?.text)
+            }}
+          >
+            {o.label} {o.cost && <CostChips cost={o.cost} />}
+            {o.morale && <b className="morale-cost">✦{o.morale}</b>}
+          </button>
+          <ul>
+            {o.outcomes.map((x, j) => (
+              <li key={j}>
+                {x.chance < 1 && <b className="mono">{Math.round(x.chance * 100)}%</b>} {x.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {reachable && def.options.length > 0 && <p className="muted">Or leave it. It waits for you.</p>}
+    </div>
+  )
+}
+
 // ── Right: scout ──────────────────────────────────────────────────────
 
 function ScoutPanel({ onFocusTile }: { onFocusTile: (h: Hex) => void }) {
@@ -728,6 +793,22 @@ function ScoutPanel({ onFocusTile }: { onFocusTile: (h: Hex) => void }) {
         <span className="scout-seal">⚿</span>
         <p>Their troop stays hidden until the armies meet.</p>
       </div>
+      <h3 className="section-title" data-help="site">
+        Sites
+      </h3>
+      <ul className="camp-list">
+        {s.map.tiles.filter((t) => t.site).length === 0 && <li className="muted">None yet. New ones appear each round.</li>}
+        {s.map.tiles
+          .filter((t) => t.site)
+          .map((t) => (
+            <li key={hexKey(t)}>
+              <button className="linkish" onClick={() => onFocusTile(t)}>
+                {SITE_DEFS[t.site!].glyph} {SITE_DEFS[t.site!].name} <small>{SITE_DEFS[t.site!].far ? 'far' : 'near'}</small>
+              </button>
+              <span className={siteReachable(s, t) ? 'ok' : 'muted'}>{siteReachable(s, t) ? 'in reach' : 'out of reach'}</span>
+            </li>
+          ))}
+      </ul>
       <h3 className="section-title" data-help="camp">
         Camps
       </h3>

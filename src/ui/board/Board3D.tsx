@@ -21,6 +21,7 @@ import * as THREE from "three";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   BUILDING_DEFS,
+  SITE_DEFS,
   TERRAIN_DEFS,
   hexKey,
   hexToWorld,
@@ -872,7 +873,9 @@ const TileMesh = function TileMesh({
 
   const hoverName = tile.camp
     ? tile.camp.name
-    : tile.building
+    : tile.site
+      ? SITE_DEFS[tile.site].name
+      : tile.building
       ? BUILDING_DEFS[tile.building.id].name
       : TERRAIN_DEFS[tile.terrain].label;
 
@@ -923,6 +926,7 @@ const TileMesh = function TileMesh({
               <BuildingMesh building={tile.building} terrain={tile.terrain} />
             ))}
           {tile.camp && <CampMesh strength={tile.camp.strength} />}
+          {tile.site && <SiteMesh far={SITE_DEFS[tile.site].far} />}
           {volcano && (
             <VolcanoTop
               // With a building the pad must stay in its corner, so the volcano isn't turned.
@@ -1560,6 +1564,23 @@ function Armory() {
         <meshStandardMaterial color="#3d3a37" metalness={0.8} roughness={0.3} />
       </mesh>
     </>
+  );
+}
+
+/** An event site: a glowing crystal turning above the tile (violet when far and risky). */
+function SiteMesh({ far }: { far: boolean }) {
+  const gem = useRef<THREE.Mesh>(null);
+  useFrame((s) => {
+    if (!gem.current) return;
+    gem.current.rotation.y = s.clock.elapsedTime * 0.8;
+    gem.current.position.y = 0.55 + Math.sin(s.clock.elapsedTime * 2) * 0.06;
+  });
+  const color = far ? "#b58cff" : "#e8d9a8";
+  return (
+    <mesh ref={gem} position-y={0.55} castShadow>
+      <octahedronGeometry args={[0.18]} />
+      <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.7} flatShading />
+    </mesh>
   );
 }
 

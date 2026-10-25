@@ -194,6 +194,13 @@ export const CONFIG = {
     populationMult: [0, 0.5, 1, 2],
   },
 
+  sites: {
+    /** New event sites each round (fewer if no tile fits). */
+    perRound: 2,
+    /** Far sites sit at least this far from the capital; near ones closer. */
+    farDistance: 3,
+  },
+
   combat: {
     tick: 0.05,
     maxSeconds: 45,

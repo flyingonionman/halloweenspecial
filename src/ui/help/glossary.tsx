@@ -311,6 +311,11 @@ const STATIC: Record<string, Resolver> = {
     body: `NPC strongholds on the map, strength I–III. Raid one on your border with your troop: units can die, but win and you get gold, morale, the tile’s resource, and the tile itself. Losing a raid only costs units and a little morale.`,
     see: ['permadeath', 'land'],
   }),
+  site: () => ({
+    title: 'Sites',
+    body: `Strange places on wild land: a shrine under a lake, a caldera, a frozen champion. ${CONFIG.sites.perRound} new ones appear each round, matched to their terrain. Once a site is on your border, its tile offers a choice; leaving it is always free. Near sites (pale) are mild. Far ones (violet), toward the edge, gamble harder for more.`,
+    see: ['camp', 'claim'],
+  }),
   scout: () => ({
     title: 'Scouting',
     body: 'This round’s opponent: a ghost, a snapshot of another civilization at the same round. You know who they are, their homeland and what they lean toward from turn 1, but their troop stays hidden until the battle. Today ghosts are generated; in async play they’ll be other players.',
