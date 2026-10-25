@@ -26,6 +26,7 @@ import {
   caravanTrade,
   SITE_DEFS,
   OMEN_DEFS,
+  activeOmen,
   omenText,
   exploreSite,
   siteBlock,
@@ -303,6 +304,32 @@ function TurnReportCard() {
 // ── Left: population ──────────────────────────────────────────────────
 
 /** Population, rarity and affinity odds (top-left dropdown). */
+/** How population grows, in plain numbers: the formula with your food filled in, and how long to the next rarity. */
+function GrowthExplainer() {
+  const [s] = useGame()
+  const e = CONFIG.economy
+  const food = effectiveYields(s).food
+  const g = growthRate(s)
+  const tp = tierProgress(s.population)
+  const turns = tp.next && g > 0 ? Math.ceil(Math.log(tp.nextAt! / s.population) / Math.log(1 + g)) : null
+  const pct = (v: number) => `${Math.round(v * 100)}%`
+  return (
+    <div className="growth-explainer" data-help="growth">
+      <p>
+        Grows every turn: <b className="mono">{pct(e.growthBase)}</b> + <b className="mono">{pct(e.growthPerFood)}</b> × <b className="mono">{food}</b> food ={' '}
+        <b className="mono">+{pct(g)}</b>
+        {activeOmen(s) === 'plague' ? <small> (halved by the Plague Year)</small> : g >= e.maxGrowth && <small> (capped)</small>}
+      </p>
+      {turns !== null && (
+        <p>
+          <span style={{ color: RARITY_COLOR[tp.next!] }}>{tp.next}</span> citizens in about <b className="mono">{turns}</b> turn{turns === 1 ? '' : 's'} at this rate.
+        </p>
+      )}
+      <p className="muted">More food: farms, plains, fisheries, high morale, Water in your troop. Recruiting doesn’t cost population.</p>
+    </div>
+  )
+}
+
 export function PopulationTab() {
   const [s] = useGame()
   const c = city(s)
@@ -324,6 +351,7 @@ export function PopulationTab() {
           </span>
         </span>
       </div>
+      <GrowthExplainer />
 
       <h3 className="section-title" data-help="birth-odds">
         Rarity of new citizens
