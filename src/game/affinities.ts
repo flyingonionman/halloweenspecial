@@ -137,8 +137,9 @@ export const AFFINITY_DEFS: Record<Affinity, AffinityDef> = {
   },
   wind: {
     id: 'wind', label: 'Wind', tier: 1, parents: [],
-    combat: { moveSpeedPct: T(0.05, 0.1, 0.15, 0.2) }, economy: { resource: 'wind', values: T(0.2, 0.4, 0.7, 1) },
-    flavour: 'Restless, quick, and hard to hold.',
+    // Attack speed at about half of Storm's, so its tier-2 child still feels like a step up.
+    combat: { moveSpeedPct: T(0.05, 0.1, 0.15, 0.2), atkSpeedPct: T(0.04, 0.08, 0.13, 0.2) }, economy: { resource: 'wind', values: T(0.2, 0.4, 0.7, 1) },
+    flavour: 'Restless and quick: moves and strikes faster.',
   },
   arcane: {
     id: 'arcane', label: 'Arcane', tier: 1, parents: [],
