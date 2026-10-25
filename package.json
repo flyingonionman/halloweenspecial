@@ -10,6 +10,8 @@
     "test": "vitest run --exclude \"**/*.probe.test.ts\"",
     "test:watch": "vitest --exclude \"**/*.probe.test.ts\"",
     "balance": "vitest run balance.probe --silent=false",
+    "sim": "vitest run sim.probe --silent=false",
+    "models": "node scripts/unit-models.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -20,6 +22,7 @@
     "three": "^0.186.1"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.1.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/three": "^0.186.0",

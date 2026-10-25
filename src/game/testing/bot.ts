@@ -3,8 +3,9 @@
  * worth of actions (it does not end the turn).
  *
  *   tempo   — strongest units, military buildings, no research.
- *   synergy — builds an academy per focus affinity (its strongest essence, then
- *             that essence's tier-2 child) and keeps offering to raise them.
+ *   synergy — builds academies for its focus (its strongest essence and the other
+ *             parent of a tier-2 child), raises them as throughput allows, and
+ *             evolves one into the tier-2 child once it unlocks.
  */
 import { AFFINITIES, AFFINITY_DEFS, type Affinity } from '../affinities'
 import {
@@ -21,8 +22,10 @@ import {
   releaseUnit,
   moveToBench,
   callMuster,
-  offerBlock,
-  offerToAcademy,
+  academyBlock,
+  academyCommitment,
+  academyMoves,
+  commitAcademy,
   troopSize,
   upgradeBuilding,
   upgradeUnit,
@@ -58,10 +61,16 @@ export function playTurn(s: GameState, style: BotStyle, mem: BotMemory): GameSta
       const spot = bare().find((t) => !buildBlock(s, t, 'academy'))
       if (spot) s = placeBuilding(s, spot, 'academy')
     }
+    // Dedicate each to a focus affinity it doesn't have yet (tier-1), raise them, and evolve into the tier-2 focus once it opens.
+    const taken = () => academies().map((x) => academyCommitment(x.building!)?.affinity)
     for (const t of academies()) {
-      const b = t.building!
-      const target = b.affinity ?? focus.find((a) => !academies().some((x) => x.building!.affinity === a) && !offerBlock(s, t, a))
-      if (target) s = offerToAcademy(s, t, target)
+      const moves = academyMoves(s, t).filter((m) => !academyBlock(s, t, m))
+      const pick =
+        moves.find((m) => m.kind === 'evolve' && focus.includes(m.affinity) && !taken().includes(m.affinity)) ??
+        moves.find((m) => m.kind === 'dedicate' && focus.includes(m.affinity) && !taken().includes(m.affinity)) ??
+        moves.find((m) => m.kind === 'dedicate' && focus.includes(m.affinity)) ??
+        moves.find((m) => m.kind === 'raise')
+      if (pick) s = commitAcademy(s, t, pick)
     }
   }
   const fit = (u: Unit) => focus.reduce((n, a) => n + (u.affinities[a] ?? 0), 0)

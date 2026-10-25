@@ -638,13 +638,14 @@ const smooth = (a: number, b: number, x: number) => {
  * per-tile texture offset lines up.
  */
 /**
- * Where a building stands on its tile: a small flat pad in the front-right
- * corner (toward the camera), so the terrain keeps the rest of the tile.
- * The capital is the exception and stays centred.
+ * Where a building stands on its tile: a flat pad in the middle (relief eases
+ * flat under it; the rim keeps its texture). Buildings are drawn a little
+ * larger than their tile-sized models so they read easily from the board camera.
  */
-const PAD = { x: 0.34, z: 0.3, r: 0.36 };
-/** Building scale on the pad. */
-const PAD_SCALE = 0.55;
+const PAD = { x: 0, z: 0, r: 0.55 };
+/** Building scale on the pad; the capital is drawn at CAPITAL_SCALE. */
+const PAD_SCALE = 0.95;
+const CAPITAL_SCALE = 1.15;
 /** 0 on the pad, easing to 1 just outside it: multiply terrain heights by this. */
 function padFlatten(x: number, z: number) {
   const d = Math.hypot(x - PAD.x, z - PAD.z);
@@ -824,10 +825,11 @@ const TileMesh = function TileMesh({
   // No tint on owned tops: territory reads from the gold rim and border (and wild land darkening).
   const emissive = selected ? SELECT_GLOW : hovered ? "#4a3420" : "#000000";
   const lake = tile.terrain === "lake";
-  // Buildings (except the capital) stand on a corner pad and leave the terrain in place.
+  // Buildings (except the capital) stand centred on a flat pad; relief around it stays.
   const padded = !!tile.building && tile.building.id !== "capital";
-  // A volcanic tile's top *is* the volcano model (it replaces the flat cap and relief).
-  const volcano = tile.terrain === "volcanic" && !tile.camp && (!tile.building || padded);
+  // A bare volcanic tile's top *is* the volcano model (it replaces the flat cap and relief).
+  // With a building on it, the tile falls back to the volcanic rock texture.
+  const volcano = tile.terrain === "volcanic" && !tile.camp && !tile.building;
   // Centred things (capital, camps) keep the middle low so they don't sink into the rock.
   const reliefAmp =
     surf?.relief && !volcano
@@ -920,14 +922,15 @@ const TileMesh = function TileMesh({
                 <BuildingMesh building={tile.building} terrain={tile.terrain} />
               </group>
             ) : (
-              <BuildingMesh building={tile.building} terrain={tile.terrain} />
+              <group scale={CAPITAL_SCALE}>
+                <BuildingMesh building={tile.building} terrain={tile.terrain} />
+              </group>
             ))}
           {tile.camp && <CampMesh strength={tile.camp.strength} />}
           {volcano && (
             <VolcanoTop
-              // With a building the pad must stay in its corner, so the volcano isn't turned.
-              turn={padded ? 0 : (tile.q * 7 + tile.r * 13) % 6}
-              padded={padded}
+              turn={(tile.q * 7 + tile.r * 13) % 6}
+              padded={false}
               color={topColor}
               emissive={emissive}
             />

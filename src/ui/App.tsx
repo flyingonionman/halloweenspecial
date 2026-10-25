@@ -4,7 +4,7 @@ import {
   STOCK_RESOURCES,
   canEndTurn,
   civTier,
-  effectiveYields,
+  netYields,
   endTurn,
   growthRate,
   isLastTurn,
@@ -21,6 +21,8 @@ import { HelpLayer } from './help/HelpLayer'
 import { Toaster } from './toast'
 import { Lexicon } from './lexicon/Lexicon'
 import { Credits } from './Credits'
+import { TitleScreen } from './screens/TitleScreen'
+import { CombatDebugger } from './debugger/CombatDebugger'
 import { useEffect, useRef, useState } from 'react'
 import { RARITY_COLOR, RESOURCE_COLOR, RESOURCE_GLYPH, SPECIES_GLYPH, fmtPop } from './theme'
 
@@ -30,8 +32,38 @@ import { RARITY_COLOR, RESOURCE_COLOR, RESOURCE_GLYPH, SPECIES_GLYPH, fmtPop } f
  *   top right    — every resource you're producing right now, morale, End turn (click: details)
  *   bottom left  — game name, round/turn timeline, ⚙ menu
  */
+export type Screen = 'title' | 'game' | 'debug'
+
+/** `?debug` opens the combat debugger, `?seed=` / `?play` skip the title. */
+function initialScreen(): Screen {
+  const q = new URLSearchParams(location.search)
+  if (q.has('debug')) return 'debug'
+  if (q.has('seed') || q.has('play')) return 'game'
+  return 'title'
+}
+
 export function App() {
   const [s] = useGame()
+  const [screen, setScreen] = useState<Screen>(initialScreen)
+
+  if (screen === 'title') {
+    return (
+      <div className="app app-full">
+        <TitleScreen onStart={() => setScreen('game')} onDebug={() => setScreen('debug')} />
+        <HelpLayer />
+      </div>
+    )
+  }
+  if (screen === 'debug') {
+    return (
+      <div className="app app-full">
+        <main className="main">
+          <CombatDebugger onExit={() => setScreen('title')} />
+        </main>
+        <HelpLayer />
+      </div>
+    )
+  }
   return (
     <div className="app">
       <TopBar />
@@ -41,7 +73,7 @@ export function App() {
         {s.phase === 'battle' && <BattleScreen />}
         {s.phase === 'over' && <OverScreen />}
       </main>
-      <CornerMenu />
+      {s.phase !== 'battle' && <CornerMenu onScreen={setScreen} />}
       <HelpLayer />
       <Toaster />
     </div>
@@ -77,9 +109,10 @@ function TopBar() {
   const [s] = useGame()
   const tier = civTier(s.population)
   const playing = s.phase !== 'species'
-  const y = playing ? effectiveYields(s) : null
+  // Income after academy upkeep: what you actually keep each turn.
+  const y = playing ? netYields(s) : null
   // Everything you hold or produce (gold always; food is a flow, shown separately).
-  const held = y ? STOCK_RESOURCES.filter((r) => r === 'gold' || s.stock[r] > 0 || y[r] > 0) : []
+  const held = y ? STOCK_RESOURCES.filter((r) => r === 'gold' || s.stock[r] > 0 || y[r] !== 0) : []
 
   return (
     <header className="topbar">
@@ -111,7 +144,7 @@ function TopBar() {
             <span key={r} className="rs-item" style={{ color: RESOURCE_COLOR[r] }} title={RESOURCE_LABEL[r]} data-help={`resource:${r}`}>
               <i>{RESOURCE_GLYPH[r]}</i>
               <b>{s.stock[r]}</b>
-              {y[r] > 0 && <small>+{y[r]}</small>}
+              {y[r] !== 0 && <small className={y[r] < 0 ? 'neg' : ''}>{y[r] > 0 ? '+' : ''}{y[r]}</small>}
             </span>
           ))}
           {y.food > 0 && (
@@ -140,13 +173,13 @@ function TopBar() {
 }
 
 /** Docked under the side panel: ⚙ menu, game name + where you are in the run, and End turn. */
-function CornerMenu() {
+function CornerMenu({ onScreen }: { onScreen: (s: Screen) => void }) {
   const [s, dispatch] = useGame()
   const store = useStore()
   const last = isLastTurn(s)
   return (
     <div className="corner-menu">
-      <SettingsMenu canReset={s.phase !== 'species'} onReset={() => confirm('Abandon this run and start over?') && store.reset()} />
+      <SettingsMenu canReset={s.phase !== 'species'} onReset={() => confirm('Abandon this run and start over?') && store.reset()} onScreen={onScreen} />
       <div className="cm-text">
         <span className="cm-title">
           <span className="brand">
@@ -198,7 +231,7 @@ function CornerMenu() {
   )
 }
 
-function SettingsMenu({ canReset, onReset }: { canReset: boolean; onReset: () => void }) {
+function SettingsMenu({ canReset, onReset, onScreen }: { canReset: boolean; onReset: () => void; onScreen: (s: Screen) => void }) {
   const [open, setOpen] = useState(false)
   const [lexicon, setLexicon] = useState(false)
   const [credits, setCredits] = useState(false)
@@ -249,6 +282,14 @@ function SettingsMenu({ canReset, onReset }: { canReset: boolean; onReset: () =>
               <small>Abandon this run</small>
             </button>
           )}
+          <button role="menuitem" onClick={() => onScreen('debug')}>
+            <span>⚔</span> Combat debugger
+            <small>Test fights without playing (your run is kept)</small>
+          </button>
+          <button role="menuitem" onClick={() => onScreen('title')}>
+            <span>☰</span> Main menu
+            <small>Your run is kept</small>
+          </button>
         </div>
       )}
       {lexicon && <Lexicon onClose={() => setLexicon(false)} />}

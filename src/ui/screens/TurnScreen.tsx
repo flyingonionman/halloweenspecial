@@ -10,7 +10,6 @@ import {
   RESOURCE_LABEL,
   STOCK_RESOURCES,
   TERRAIN_DEFS,
-  TYPE_DEFS,
   affinityOdds,
   birthRarityOdds,
   buildBlock,
@@ -62,10 +61,9 @@ import { useGame } from '../useGame'
 import { Board3D, type TileOverlay, type TilePreview } from '../board/Board3D'
 import { BuildPanel } from '../board/BuildPanel'
 import { TroopPanel } from '../components/TroopPanel'
-import { Portrait } from '../components/Portrait'
+import { FigureCard } from '../components/FigureCard'
 import { UnitDetail } from '../components/UnitDetail'
 import { AcademyPanel } from '../components/AcademyPanel'
-import { AffinityBadge } from '../components/UnitCard'
 import { deny, useRequirementCheck } from '../toast'
 import { BuildingGlyph, CostChips } from '../components/BuildingBits'
 import { fmtOutputs, outputParts, outputScore } from '../format'
@@ -690,17 +688,7 @@ function MusterPanel() {
       {!first && s.muster.length === 0 && <p className="empty">Everyone answered. Recruit again to call more.</p>}
       <div className="portrait-grid">
         {s.muster.map((c) => (
-          <button key={c.unit.uid} className={`portrait-tile ${c.price > s.morale ? 'poor' : ''}`} onClick={() => setOpen(c.unit.uid)} title={c.unit.name}>
-            <Portrait unit={c.unit} size={84} />
-            <span className="pt-name">{c.unit.name.split(' ').slice(0, 2).join(' ')}</span>
-            <span className="pt-meta">
-              <span style={{ color: RARITY_COLOR[c.unit.rarity] }}>{c.unit.rarity}</span> {TYPE_DEFS[c.unit.type].label}
-            </span>
-            <AffinityBadge points={c.unit.affinities} />
-            <span className="pt-foot">
-              <b className="morale-cost">✦{c.price}</b>
-            </span>
-          </button>
+          <FigureCard key={c.unit.uid} unit={c.unit} dim={c.price > s.morale} onClick={() => setOpen(c.unit.uid)} corner={<b className="morale-cost">✦{c.price}</b>} />
         ))}
       </div>
     </div>

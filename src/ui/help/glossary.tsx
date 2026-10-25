@@ -143,7 +143,7 @@ const STATIC: Record<string, Resolver> = {
   }),
   stores: () => ({
     title: 'Stores',
-    body: 'Resources you’ve stockpiled, with what your land adds each turn. Stone and the seven essences come from tiles: raw tiles yield a little, Mines yield more. Every building costs stone; essences train units and are offered to academies, and each has a second use.',
+    body: 'Resources you’ve stockpiled, with what your land adds each turn. Stone and the seven essences come from tiles: raw tiles yield a little, Mines yield more. Every building costs stone; essences train units and feed academies (an upfront payment plus a share of every turn’s income), and each has a second use. The “+N” is what you keep after academy upkeep.',
     see: ['tile-output', 'trade', 'resource:stone', 'resource:earth'],
   }),
   food: (s) => ({
@@ -193,7 +193,7 @@ const STATIC: Record<string, Resolver> = {
   }),
   'affinity-vs-resource': () => ({
     title: 'Affinity is not a resource',
-    body: 'Your land gives you resources; only academies give your people affinities. A volcanic field yields ember, but nobody is born with Fire until you dedicate an academy to it. The ember is what you pay with: spend it on academies, on training, or on its own side role. A land rich in ember often ends up with a Fire troop, but it doesn’t have to.',
+    body: 'Your land gives you resources; only academies give your people affinities. A volcanic field yields ember, but nobody is born with Fire until you dedicate an academy to it. The ember is what you pay with: commit its flow to academies, spend it on training, or use its side role. A land rich in ember often ends up with a Fire troop, but it doesn’t have to.',
     see: ['birth-odds', 'kind:research', 'stores'],
   }),
   trade: (s) => ({
@@ -210,12 +210,12 @@ const STATIC: Record<string, Resolver> = {
   }),
   'kind:civic': () => ({ title: 'Civic buildings', kind: 'Building group', body: 'Food, gold and trade. The economy that everything else runs on. The Fishery is the only building that stands on a lake.', see: ['building:farm', 'building:fishery', 'building:market', 'building:trading-post'] }),
   'kind:gather': () => ({ title: 'Gathering', kind: 'Building group', body: 'One building line for every resource. A Mine digs whatever its tile holds (stone on hills and mountains, mud on steppe and forest, and so on): raw yield + its level, +1 per neighbouring tile of the same terrain (up to 3). Upgrade it into a Quarry, then an Excavator.', see: ['building:mine', 'adjacency', 'stores'] }),
-  'kind:faith': () => ({ title: 'Faith', kind: 'Building group', body: 'The Church makes light and the Crypt makes dark: the two essences no land gives, and what Light and Dark academies are offered. Open a Church to offer light for morale.', see: ['building:church', 'building:crypt', 'kind:research'] }),
+  'kind:faith': () => ({ title: 'Faith', kind: 'Building group', body: 'The Church makes light and the Crypt makes dark: the two essences no land gives, and what Light and Dark academies run on. Open a Church to offer light for morale.', see: ['building:church', 'building:crypt', 'kind:research'] }),
   'kind:military': () => ({ title: 'Military buildings', kind: 'Building group', body: 'Permanent bonuses for every unit, whatever their affinities. This is the tempo line: strong without committing to synergies.', see: ['building:barracks', 'building:walls', 'building:armory', 'troop-bonus'] }),
   'kind:research': (s) => ({
     title: 'Academies',
     kind: 'Building group',
-    body: `The only source of affinities. Build one anywhere (every academy after your first also costs ${A.extraAcademyArcane} arcane per academy you own: arcane’s main use). It goes up empty: open its tile and offer an affinity’s essences to dedicate it (Water Academy), then offer more to raise it to Lv${A.maxLevel}. Offerings cost the affinity’s tier-1 roots (Magma = fire + earth). Tier-2+ affinities open once each parent has an academy at Lv${A.unlockLevel}. More academies of an affinity, and higher levels, mean more citizens born with it and with more points.`,
+    body: `The only source of affinities. Build one anywhere (every academy after your first also costs ${A.extraAcademyArcane} arcane per academy you own: arcane’s main use). It goes up empty. Open its tile to dedicate it to an element (a Water Academy), raise it up to Lv${A.maxLevel}, or, from Lv${A.unlockLevel}, evolve it into a higher tier (Fire → Magma, once Fire and Earth are both Lv${A.unlockLevel}). Each step costs two things: an upfront payment, and a standing commitment of income: ${A.flowPerLevel} of each root essence per turn per level, × tier (a Lv2 Water Academy draws 2 hydrocorals every turn; Magma draws ember and mud). The change takes effect next turn, one change per academy per turn. If its upkeep can’t be paid, it starves and teaches nothing. More academies of an affinity, and higher levels, mean more citizens born with it, with more points.`,
     live: city(s).academies.length
       ? `Yours: ${city(s).academies.map((a) => `${AFFINITY_LABEL[a.affinity]} Lv${a.level}`).join(', ')}.`
       : city(s).academyCount
@@ -298,7 +298,11 @@ const STATIC: Record<string, Resolver> = {
   'stat:hp': () => ({ title: 'HP', kind: 'Stat', body: 'Health. Boosted by rarity, quality, level, Walls, academies, and Water and Light synergies.' }),
   'stat:atk': () => ({ title: 'Attack', kind: 'Stat', body: 'Damage per hit, and the base for abilities. Boosted by rarity, quality, level, Barracks, academies, and Fire and Weaponry synergies.' }),
   'stat:def': () => ({ title: 'Defense', kind: 'Stat', body: `Reduces damage taken: damage × 100/(100+DEF). Magic damage counts only ${pct(CONFIG.combat.magicDefFactor)} of defense.` }),
-  'stat:rng': () => ({ title: 'Range', kind: 'Stat', body: 'How far the unit can attack from. Melee is about 1.2. Placement only matters through range and cohesion synergies.' }),
+  'stat:rng': () => ({
+    title: 'Reach and speed',
+    kind: 'Stat',
+    body: `Reach is how many arena cells away the unit can hit from (1 = melee, next to it). Battles run in ticks (${CONFIG.combat.ticksPerSecond} a second): a step to the next cell and every attack take a set number of ticks, so faster units simply act more often.`,
+  }),
   'stat:pwr': () => ({ title: 'Power', kind: 'Stat', body: 'A rough single-number strength: √(damage per second × effective HP). Handy for comparing, but it ignores synergies and abilities.' }),
   camp: () => ({
     title: 'Camps',
@@ -312,7 +316,7 @@ const STATIC: Record<string, Resolver> = {
   }),
   battle: () => ({
     title: 'Round battle',
-    body: `After turn ${CONFIG.turnsPerRound}, your troop auto-fights the round’s opponent. Win for gold and morale. Lose and the run is over. Either way, units that fall are gone.`,
+    body: `After turn ${CONFIG.turnsPerRound}, your troop auto-fights the round’s opponent on a hex arena, tick by tick. Tanks draw the enemy's fighters, rangers and mages; healers keep allies up. Win for gold and morale. Lose and the run is over. Either way, units that fall are gone.`,
     see: ['elimination', 'permadeath', 'scout'],
   }),
 }
@@ -424,16 +428,16 @@ function terrain(t: TerrainId): Resolver {
   }
 }
 
-/** Each resource's job beyond training and academy offerings. */
+/** Each resource's job beyond training and feeding academies. */
 const ROLE: Partial<Record<ResourceId, string>> = {
   gold: 'Claims land, levels units, and pays for every building.',
   stone: 'Every building is built from stone.',
   earth: `Pays for land: claim a tile for 1 mud per ${CONFIG.territory.goldPerEarth} gold of its cost.`,
   light: `Offer ${CONFIG.faith.lightPerOffering} at a Church for +${CONFIG.faith.moralePerOffering} morale.`,
   water: 'Builds Fisheries, which turn lakes into food.',
-  fire: 'Trains units and is offered to academies. Barracks need it.',
-  wind: 'Trains units and is offered to academies.',
-  dark: 'Trains units and is offered to academies. Only a Crypt makes it.',
+  fire: 'Trains units and feeds academies. Barracks need it.',
+  wind: 'Trains units and feeds academies.',
+  dark: 'Trains units and feeds academies. Only a Crypt makes it.',
   arcane: `Its main use: every academy after your first costs ${CONFIG.affinity.extraAcademyArcane} arcane per academy you own. Leyfields are rare.`,
 }
 
@@ -469,9 +473,11 @@ function unitType(t: UnitType): Resolver {
       kind: 'Unit type',
       body: (
         <>
-          {d.blurb} Deals {d.damage} damage{d.damage === 'magic' ? `, which counts only ${pct(CONFIG.combat.magicDefFactor)} of defense` : ''}.
+          {d.blurb} Reaches {d.base.range} cell{d.base.range === 1 ? '' : 's'} and deals {d.damage} damage
+          {d.damage === 'magic' ? `, which counts only ${pct(CONFIG.combat.magicDefFactor)} of defense` : ''}.
+          <p className="help-line">{d.targeting}</p>
           <p className="help-line">
-            <b>{d.abilityLabel}:</b> {d.abilityText} Cast when energy is full.
+            <b>{d.abilityLabel}:</b> {d.abilityText} Cast when energy is full (+{CONFIG.combat.energyPerAttack} per attack, +{CONFIG.combat.energyPerHit} when hit).
           </p>
         </>
       ),

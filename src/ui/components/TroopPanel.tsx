@@ -24,9 +24,8 @@ import {
 import { useState } from 'react'
 import { useGame } from '../useGame'
 import { UnitDetail } from './UnitDetail'
-import { AffinityBadge } from './UnitCard'
-import { Portrait } from './Portrait'
-import { AFFINITY_COLOR, AFFINITY_GLYPH, RARITY_COLOR, TYPE_GLYPH } from '../theme'
+import { FigureCard } from './FigureCard'
+import { AFFINITY_COLOR, AFFINITY_GLYPH, TYPE_GLYPH } from '../theme'
 
 export const effectsText = (fx: Effects) =>
   (Object.entries(fx) as [keyof typeof EFFECT_TEXT, number][]).map(([k, v]) => EFFECT_TEXT[k](v)).join(', ')
@@ -191,20 +190,19 @@ export function TroopPanel() {
   )
 }
 
-/** A unit as a face tile: portrait, name, rarity + type, level and veteran stars. */
-function UnitTile({ unit, onOpen, className = '', ...drag }: { unit: Unit; onOpen: () => void } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+/** A unit as a tall figure card; the corner chip shows level and veteran stars. */
+function UnitTile({ unit, onOpen, ...drag }: { unit: Unit; onOpen: () => void } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
-    <button {...drag} className={`portrait-tile ${className}`} onClick={onOpen} title={unit.name}>
-      <Portrait unit={unit} size={72} />
-      <span className="pt-name">{unit.name.split(' ').slice(0, 2).join(' ')}</span>
-      <span className="pt-meta">
-        <span style={{ color: RARITY_COLOR[unit.rarity] }}>{unit.rarity}</span> {TYPE_DEFS[unit.type].label}
-      </span>
-      <AffinityBadge points={unit.affinities} />
-      <span className="pt-foot">
-        <b className="mono">Lv{unit.level}</b>
-        {unit.battlesSurvived > 0 && <span className="pt-vet">{'★'.repeat(Math.min(3, unit.battlesSurvived))}</span>}
-      </span>
-    </button>
+    <FigureCard
+      {...drag}
+      unit={unit}
+      onClick={onOpen}
+      corner={
+        <>
+          <b className="mono">Lv{unit.level}</b>
+          {unit.battlesSurvived > 0 && <span className="pt-vet">{'★'.repeat(Math.min(3, unit.battlesSurvived))}</span>}
+        </>
+      }
+    />
   )
 }

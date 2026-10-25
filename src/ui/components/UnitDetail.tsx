@@ -5,6 +5,8 @@
 import { useEffect } from 'react'
 import {
   CONFIG,
+  attackTicks,
+  moveTicks,
   EFFECT_TEXT,
   TYPE_DEFS,
   affinityEntries,
@@ -78,7 +80,7 @@ export function UnitDetail({
   s: GameState
   inTroop: boolean
   onClose: () => void
-  /** Extra buttons for the footer, e.g. Recruit from the muster. */
+  /** Main actions, shown at the top under the header (e.g. Enlist from the muster, Bench/Deploy). */
   actions?: React.ReactNode
   /** Render inside a panel (with a back arrow) instead of as a modal. */
   inline?: boolean
@@ -126,9 +128,10 @@ export function UnitDetail({
             ←
           </button>
         )}
-        <header className="sheet-head">
-          <Portrait unit={unit} size={84} />
-          <div>
+        {/* Hero: the animated figure on the left; who it is, how it fights, and the main action on the right. */}
+        <header className="us-hero">
+          <Portrait unit={unit} animate />
+          <div className="us-hero-info">
             <span className="help-kind">
               <span data-help={`rarity:${unit.rarity}`} style={{ color: RARITY_COLOR[unit.rarity] }}>
                 {unit.rarity}
@@ -143,6 +146,31 @@ export function UnitDetail({
             </span>
             {owned ? <EditableName unit={unit} /> : <h3>{unit.name}</h3>}
             <AffinityChips points={unit.affinities} />
+            <dl className="us-brief">
+              <div data-help="stat:rng">
+                <dt>Reach</dt>
+                <dd>
+                  {base.range} cell{base.range === 1 ? '' : 's'} · {base.range < 2 ? 'melee' : 'ranged'}
+                </dd>
+              </div>
+              <div data-help="stat:atk">
+                <dt>Attack</dt>
+                <dd>
+                  every {attackTicks(base.atkSpeed)} ticks · {type.damage}
+                </dd>
+              </div>
+              <div data-help="stat:rng">
+                <dt>Step</dt>
+                <dd>{moveTicks(base.moveSpeed)} ticks per cell</dd>
+              </div>
+              <div>
+                <dt>Skill</dt>
+                <dd>
+                  {type.abilityLabel} at {base.maxEnergy} energy
+                </dd>
+              </div>
+            </dl>
+            {actions && <div className="us-actions">{actions}</div>}
           </div>
           {!inline && (
             <button className="help-close" onClick={onClose} aria-label="Close">
@@ -150,23 +178,6 @@ export function UnitDetail({
             </button>
           )}
         </header>
-
-        <section className="us-style">
-          <h4>Combat style</h4>
-          <p>
-            <b>{type.label}.</b> {type.blurb} Attacks from range {base.range}, {base.atkSpeed.toFixed(2)} times a second, dealing{' '}
-            <b data-help="stat:def">{type.damage}</b> damage{type.damage === 'magic' ? ` (counts only ${pct(CONFIG.combat.magicDefFactor)} of defense)` : ''}. Moves{' '}
-            {base.moveSpeed.toFixed(1)} per second; {base.range < 2 ? 'closes to melee and holds the front line' : 'hangs back and fires from the rear'}.
-          </p>
-          <p className="us-ability">
-            <b>{type.abilityLabel}</b> <small>at {base.maxEnergy} energy</small>
-            <br />
-            {type.abilityText}
-          </p>
-          <p className="muted">
-            Energy: +{CONFIG.combat.energyPerAttack} per attack, +{CONFIG.combat.energyPerHit} when hit.
-          </p>
-        </section>
 
         <section>
           <h4>Stats</h4>
@@ -182,9 +193,9 @@ export function UnitDetail({
               {row('HP', 'stat:hp', base.hp, battle.hp)}
               {row('Attack', 'stat:atk', base.atk, battle.atk)}
               {row('Defense', 'stat:def', base.def, battle.def)}
-              {row('Range', 'stat:rng', base.range.toFixed(1), battle.range.toFixed(1))}
-              {row('Attack speed', 'stat:atk', base.atkSpeed.toFixed(2), battle.atkSpeed.toFixed(2))}
-              {row('Move speed', 'stat:rng', base.moveSpeed.toFixed(1), battle.moveSpeed.toFixed(1))}
+              {row('Reach (cells)', 'stat:rng', base.range, battle.range)}
+              {row('Ticks per attack', 'stat:atk', attackTicks(base.atkSpeed), attackTicks(battle.atkSpeed))}
+              {row('Ticks per step', 'stat:rng', moveTicks(base.moveSpeed), moveTicks(battle.moveSpeed))}
               {row('Power', 'stat:pwr', unitPower(unit), '—')}
             </tbody>
           </table>
@@ -240,7 +251,6 @@ export function UnitDetail({
             </span>
           )}
           {owned && upgradeDiscount(unit) > 0 && <span className="muted">veteran −{pct(upgradeDiscount(unit))}</span>}
-          {actions}
         </footer>
       </div>
   )

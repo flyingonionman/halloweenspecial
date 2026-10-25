@@ -253,7 +253,17 @@ export function rootsOf(a: Affinity): ElementId[] {
   return [...new Set(d.parents.flatMap(rootsOf))]
 }
 
-/** Essences (and gold) to raise an affinity to `level` at the Academy: each root's essence, scaled by tier. */
+/**
+ * Throughput an academy of `a` at `level` draws every turn: a fixed amount per level of each
+ * tier-1 root's essence, scaled by tier. Paid out of each turn's income for as long as it stands.
+ */
+export function academyFlow(a: Affinity, level: number): Cost {
+  const cost: Cost = {}
+  for (const r of rootsOf(a)) cost[r] = CONFIG.affinity.flowPerLevel * level * AFFINITY_DEFS[a].tier
+  return cost
+}
+
+/** The upfront payment to dedicate an academy to `a`, raise it to `level`, or evolve into `a` (level 1). */
 export function researchCost(a: Affinity, level: number): Cost {
   const { essence, gold } = CONFIG.affinity.research
   const t = AFFINITY_DEFS[a].tier

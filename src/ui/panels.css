@@ -188,15 +188,13 @@
   font-size: 12px;
 }
 
-.ac-dedicate {
+.ac-moves {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.ac-dedicate select {
-  flex: 1;
-  min-width: 0;
+.ac-moves select {
   background: var(--ink-3);
   color: var(--bone);
   border: 1px solid var(--line);
@@ -205,21 +203,79 @@
   padding: 4px 6px;
 }
 
-.ac-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.ac-list li {
+/* one move: [name] upfront chips · −flow/turn · button */
+.ac-move {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   padding: 4px 0;
 }
 
-.ac-list .ac-name {
+.ac-move.locked {
+  opacity: 0.55;
+}
+
+.ac-move .ac-name {
+  flex: 1 0 100%;
+  font-weight: 600;
+}
+
+.ac-move .ac-name small {
+  font-weight: 400;
+  color: var(--bone-faint);
+}
+
+.ac-costs {
   flex: 1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.flow-chips {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px dashed var(--line);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.flow-chips small {
+  color: var(--bone-faint);
+  font-size: 10px;
+}
+
+.ac-upkeep {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--bone-dim);
+}
+
+.ac-pending {
+  margin: 0;
+  font-size: 12px;
+  color: #9fd3ea;
+}
+
+.ac-starved {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: #ffb4a8;
+  background: rgba(201, 74, 58, 0.12);
+  border-left: 2px solid #c94a3a;
+}
+
+/* top bar: an essence running at a loss after academy upkeep */
+.rs-item small.neg {
+  color: #ff8a7a;
 }
 
 /* morale cost on a light primary button: the usual pale blue disappears on cream */
@@ -263,8 +319,171 @@
   opacity: 0.55;
 }
 
+/* Full-body model render over an affinity-tinted backdrop, rarity frame. */
 .portrait {
+  position: relative;
   display: block;
+  flex: none;
+  border: 2px solid var(--frame);
+  border-radius: 6px;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 38%, color-mix(in srgb, var(--aff) 55%, transparent), transparent 75%),
+    radial-gradient(ellipse 60% 18% at 50% 92%, rgba(0, 0, 0, 0.55), transparent 70%),
+    linear-gradient(#211a16, #100c0a);
+}
+
+.portrait img,
+.portrait canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Live: the animated canvas replaces the still. */
+.portrait canvas {
+  visibility: hidden;
+}
+
+.portrait.is-live canvas {
+  visibility: visible;
+}
+
+.portrait.is-live img {
+  visibility: hidden;
+}
+
+/* Inside a figure card the card is the frame. */
+.portrait.bare {
+  border: none;
+  border-radius: 0;
+}
+
+/* ── Figure cards: tall, the render fills them, chips in the corners ── */
+.portrait-grid:has(.figure-card) {
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+}
+
+.figure-card {
+  position: relative;
+  display: block;
+  aspect-ratio: 3 / 4;
+  padding: 0;
+  border: 2px solid color-mix(in srgb, var(--frame) 70%, var(--line));
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--ink-2);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
+  animation: card-in 0.35s ease-out both;
+}
+
+.figure-card:hover,
+.figure-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: var(--frame);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--frame);
+}
+
+.figure-card.poor {
+  opacity: 0.55;
+}
+
+.figure-card > .portrait {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.fc-top {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  right: 5px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  pointer-events: none;
+}
+
+.fc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  line-height: 15px;
+  text-transform: capitalize;
+  white-space: nowrap;
+  color: var(--bone);
+  background: rgba(12, 9, 8, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(2px);
+}
+
+.fc-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 18px 5px 5px;
+  background: linear-gradient(transparent, rgba(10, 8, 7, 0.85) 55%);
+  pointer-events: none;
+}
+
+.fc-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px #000;
+}
+
+.fc-chips {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 3px;
+}
+
+.fc-chips .aff-badge {
+  margin: 0;
+  font-size: 9.5px;
+  border-radius: 999px;
+  background: rgba(12, 9, 8, 0.72);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.fc-corner {
+  font-family: var(--mono);
+}
+
+.fc-corner b {
+  font-size: 10px;
+}
+
+.fc-corner .pt-vet {
+  font-size: 9px;
+}
+
+.portrait-grid:has(.figure-card) .slot-empty {
+  aspect-ratio: 3 / 4;
+  min-height: 0;
 }
 
 .pt-name {
