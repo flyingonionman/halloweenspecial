@@ -70,7 +70,6 @@ export interface CombatStats extends Stats, Record<Exclude<EffectKey, `${string}
   energyGain: number
 }
 
-/** Final stats: unit × military buildings × research level + attunement of its affinities × active synergies it carries. */
 /** City-side bonuses from tier-1 synergies in the troop: extra resource yield and morale per turn. */
 export function troopEconomy(troop: readonly Unit[], levels: Partial<Record<Affinity, number>> = {}) {
   const yieldPct: Partial<Record<ResourceId, number>> = {}
@@ -85,6 +84,7 @@ export function troopEconomy(troop: readonly Unit[], levels: Partial<Record<Affi
   return { yieldPct, morale }
 }
 
+/** Final stats: unit × military buildings × research level of its affinities × active synergies it carries. */
 export function combatStats(unit: Unit, synergies: readonly ActiveSynergy[], bonuses?: TeamBonuses): CombatStats {
   const base = unitStats(unit)
   const fx: Record<EffectKey, number> = Object.fromEntries(EFFECT_KEYS.map((k) => [k, 0])) as Record<EffectKey, number>
@@ -98,9 +98,7 @@ export function combatStats(unit: Unit, synergies: readonly ActiveSynergy[], bon
   let researchMult = 1
   if (bonuses) {
     for (const a of Object.keys(unit.affinities) as Affinity[]) {
-      researchMult +=
-        (bonuses.affinityLevels[a] ?? 0) * CONFIG.affinity.combatBonusPerLevel +
-        (bonuses.attune[a] ?? 0) * CONFIG.affinity.combatBonusPerAttune
+      researchMult += (bonuses.affinityLevels[a] ?? 0) * CONFIG.affinity.combatBonusPerLevel
     }
   }
 

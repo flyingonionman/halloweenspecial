@@ -1,43 +1,43 @@
 /**
- * Buildings sit on tiles. Each one has a base output and adjacency rules: its
- * output grows with the right terrain or buildings next to it. That's the
- * spatial puzzle: where you put things matters as much as what you build.
+ * Buildings sit on tiles. Each one has an output and adjacency rules: its
+ * output grows with the right terrain or buildings next to it. Every building
+ * is built from stone (plus gold, and sometimes an essence).
  *
  * Kinds:
- *   extractor — turns a terrain into its resource (replaces the tile's raw yield)
- *   civic     — food, gold, trade
- *   military  — permanent combat bonuses for every unit (the tempo line)
- *   research  — one academy per affinity; its level is that affinity's level
+ *   gather   — the Mine line (Mine → Quarry → Excavator): digs whatever its tile holds
+ *   civic    — food, gold, trade
+ *   faith    — Church (light) and Crypt (dark)
+ *   research — Academies: dedicated to an affinity by offering essences; the only source of affinities at birth
+ *   military — permanent combat bonuses for every unit (the tempo line)
  */
-import { AFFINITIES, AFFINITY_DEFS, AFFINITY_LABEL, type Affinity } from '../affinities'
-import { CONFIG } from '../config'
+import type { ElementId } from './terrain'
 import { TERRAIN_DEFS, type Cost, type ResourceId, type TerrainId } from './terrain'
 
-export type OutputKey = ResourceId | 'atkPct' | 'hpPct' | 'defPct' | 'trade' | 'attune'
+export type OutputKey = ResourceId | 'atkPct' | 'hpPct' | 'defPct' | 'trade'
 export type Outputs = Partial<Record<OutputKey, number>>
 
-const EXTRACTORS = [
-  ['lumber-camp', 'Lumber Camp', 'forest'],
-  ['mine', 'Mine', 'hills'],
-  ['quarry', 'Quarry', 'mountains'],
-  ['tannery', 'Tannery', 'steppe'],
-  ['ice-pit', 'Ice Pit', 'tundra'],
-  ['ember-pit', 'Ember Pit', 'volcanic'],
-  ['crystal-drill', 'Crystal Drill', 'leyfield'],
-  ['aerie', 'Aerie', 'highlands'],
-] as const
+export type BuildingId =
+  | 'capital'
+  | 'farm'
+  | 'fishery'
+  | 'market'
+  | 'trading-post'
+  | 'mine'
+  | 'church'
+  | 'crypt'
+  | 'academy'
+  | 'barracks'
+  | 'walls'
+  | 'armory'
 
-type ExtractorId = (typeof EXTRACTORS)[number][0]
-export type AcademyId = `${Affinity}-academy`
-export type BuildingId = 'capital' | 'farm' | 'market' | 'trading-post' | 'barracks' | 'walls' | 'armory' | ExtractorId | AcademyId
+export type BuildingKind = 'capital' | 'gather' | 'civic' | 'faith' | 'research' | 'military'
 
-export type BuildingKind = 'capital' | 'extractor' | 'civic' | 'military' | 'research'
-
-export type Selector = { terrain: TerrainId } | { building: BuildingId } | { sameTerrain: true }
+export type Selector = { terrain: TerrainId | readonly TerrainId[] } | { building: BuildingId } | { sameTerrain: true }
 
 export interface AdjacencyRule {
   per: Selector
-  add: Outputs
+  /** 'tile' = +1 of whatever resource the building's own tile holds. */
+  add: Outputs | 'tile'
   /** Max neighbours counted. */
   cap?: number
 }
@@ -45,6 +45,8 @@ export interface AdjacencyRule {
 export interface BuildingDef {
   id: BuildingId
   name: string
+  /** Names by level, for buildings that change as they grow (Mine → Quarry → Excavator). */
+  levelNames?: readonly string[]
   kind: BuildingKind
   text: string
   /** Terrains it can be placed on; 'any' = any buildable terrain. */
@@ -53,14 +55,14 @@ export interface BuildingDef {
   maxLevel: number
   /** Cost to reach `level` (1 = initial build). */
   cost: (level: number) => Cost
-  base: Outputs
+  /** Output before adjacency. A function when it depends on the tile or level. */
+  base: Outputs | ((terrain: TerrainId, level: number) => Outputs)
   adjacency: AdjacencyRule[]
-  affinity?: Affinity
+  /** Faith buildings: the essence (and so the affinity) they serve. */
+  affinity?: ElementId
 }
 
 const flat = (c: Cost) => () => c
-const UNLOCK_LEVEL = CONFIG.affinity.unlockLevel
-export const academyId = (a: Affinity): AcademyId => `${a}-academy`
 
 export const BUILDING_DEFS: Record<BuildingId, BuildingDef> = {
   capital: {
@@ -72,34 +74,46 @@ export const BUILDING_DEFS: Record<BuildingId, BuildingDef> = {
     unique: true,
     maxLevel: 1,
     cost: flat({}),
-    base: { food: 2, gold: 4 },
+    base: { food: 2, gold: 4, stone: 1 },
     adjacency: [],
   },
   farm: {
     id: 'farm',
     name: 'Farm',
     kind: 'civic',
-    text: 'Food feeds growth.',
-    allowed: ['plains'],
+    text: 'Food feeds growth. Thrives beside lakes and other farms.',
+    allowed: ['plains', 'steppe', 'highlands', 'forest'],
     maxLevel: 1,
-    cost: flat({ gold: 3 }),
+    cost: flat({ gold: 3, stone: 1 }),
     base: { food: 2 },
     adjacency: [
       { per: { terrain: 'lake' }, add: { food: 1 }, cap: 2 },
       { per: { building: 'farm' }, add: { food: 1 }, cap: 2 },
     ],
   },
+  fishery: {
+    id: 'fishery',
+    name: 'Fishery',
+    kind: 'civic',
+    text: 'The only building that stands on water. Built with hydrocorals; turns a lake into food.',
+    allowed: ['lake'],
+    maxLevel: 1,
+    cost: flat({ gold: 3, stone: 1, water: 3 }),
+    base: { food: 3 },
+    adjacency: [{ per: { terrain: 'lake' }, add: { food: 1 }, cap: 3 }],
+  },
   market: {
     id: 'market',
     name: 'Market',
     kind: 'civic',
-    text: 'Gold every turn. Sells the harvest of neighbouring farms.',
+    text: 'Gold every turn. Sells the harvest of neighbouring farms and fisheries.',
     allowed: 'any',
     maxLevel: 1,
-    cost: flat({ gold: 5, timber: 2 }),
+    cost: flat({ gold: 5, stone: 2 }),
     base: { gold: 2 },
     adjacency: [
       { per: { building: 'farm' }, add: { gold: 1 }, cap: 3 },
+      { per: { building: 'fishery' }, add: { gold: 1 }, cap: 2 },
       { per: { building: 'capital' }, add: { gold: 1 }, cap: 1 },
     ],
   },
@@ -107,17 +121,67 @@ export const BUILDING_DEFS: Record<BuildingId, BuildingDef> = {
     id: 'trading-post',
     name: 'Trading Post',
     kind: 'civic',
-    text: 'Lets you trade materials. Better rates beside a lake or market.',
+    text: 'Open it to trade resources. Better rates beside a lake or market.',
     allowed: 'any',
     unique: true,
     maxLevel: 1,
-    // Gold only: it's the escape hatch for whatever your land lacks.
-    cost: flat({ gold: 8 }),
+    cost: flat({ gold: 8, stone: 2 }),
     base: { trade: 0 },
     adjacency: [
       { per: { terrain: 'lake' }, add: { trade: 1 }, cap: 1 },
       { per: { building: 'market' }, add: { trade: 1 }, cap: 1 },
     ],
+  },
+  mine: {
+    id: 'mine',
+    name: 'Mine',
+    levelNames: ['Mine', 'Quarry', 'Excavator'],
+    kind: 'gather',
+    text: 'Digs whatever its tile holds: stone, or the essence of the land. +1 per neighbouring tile of the same terrain. Upgrades into a Quarry, then an Excavator.',
+    allowed: ['steppe', 'highlands', 'forest', 'hills', 'volcanic', 'mountains', 'tundra', 'leyfield'],
+    maxLevel: 3,
+    cost: (level) => [{ gold: 3, stone: 1 }, { gold: 8, stone: 4 }, { gold: 16, stone: 8 }][level - 1] ?? {},
+    base: (terrain, level) => {
+      const t = TERRAIN_DEFS[terrain]
+      return { [t.resource]: t.rawYield + level }
+    },
+    adjacency: [{ per: { sameTerrain: true }, add: 'tile', cap: 3 }],
+  },
+  church: {
+    id: 'church',
+    name: 'Church',
+    kind: 'faith',
+    affinity: 'light',
+    text: 'Produces light, the essence a Light Academy is offered. Open it to offer light for morale.',
+    allowed: 'any',
+    maxLevel: 1,
+    cost: flat({ gold: 6, stone: 3 }),
+    base: { light: 2 },
+    adjacency: [{ per: { terrain: ['plains', 'highlands'] }, add: { light: 1 }, cap: 1 }],
+  },
+  crypt: {
+    id: 'crypt',
+    name: 'Crypt',
+    kind: 'faith',
+    affinity: 'dark',
+    text: 'Produces dark, the essence a Dark Academy is offered.',
+    allowed: 'any',
+    maxLevel: 1,
+    cost: flat({ gold: 6, stone: 3 }),
+    base: { dark: 2 },
+    adjacency: [{ per: { terrain: ['mountains', 'hills'] }, add: { dark: 1 }, cap: 1 }],
+  },
+  academy: {
+    id: 'academy',
+    name: 'Academy',
+    kind: 'research',
+    text: 'Built empty. Open it and offer an affinity’s essences to dedicate it (hydrocorals make a Water Academy); offer more to raise its level. Each academy makes citizens likelier to be born with its affinity, and its level is the most points they can carry. Build as many as you like: every one after the first also costs arcane.',
+    allowed: 'any',
+    maxLevel: 4,
+    // Only the empty building has a fixed price; offerings depend on the affinity (researchCost).
+    cost: (level) => (level === 1 ? { gold: 8, stone: 4 } : {}),
+    base: {},
+    adjacency: [],
   },
   barracks: {
     id: 'barracks',
@@ -126,7 +190,7 @@ export const BUILDING_DEFS: Record<BuildingId, BuildingDef> = {
     text: 'Every unit hits harder. Feeds on nearby mines.',
     allowed: 'any',
     maxLevel: 1,
-    cost: flat({ gold: 5, iron: 3 }),
+    cost: flat({ gold: 5, stone: 2, fire: 2 }),
     base: { atkPct: 0.08 },
     adjacency: [{ per: { building: 'mine' }, add: { atkPct: 0.03 }, cap: 3 }],
   },
@@ -134,15 +198,12 @@ export const BUILDING_DEFS: Record<BuildingId, BuildingDef> = {
     id: 'walls',
     name: 'Walls',
     kind: 'military',
-    text: 'Every unit is hardier. Feeds on nearby quarries and mountains.',
+    text: 'Every unit is hardier. Stronger against hills and mountains.',
     allowed: 'any',
     maxLevel: 1,
-    cost: flat({ gold: 5, stone: 3 }),
+    cost: flat({ gold: 5, stone: 4 }),
     base: { hpPct: 0.08 },
-    adjacency: [
-      { per: { building: 'quarry' }, add: { hpPct: 0.03 }, cap: 2 },
-      { per: { terrain: 'mountains' }, add: { hpPct: 0.01 }, cap: 3 },
-    ],
+    adjacency: [{ per: { terrain: ['hills', 'mountains'] }, add: { hpPct: 0.02 }, cap: 3 }],
   },
   armory: {
     id: 'armory',
@@ -151,67 +212,27 @@ export const BUILDING_DEFS: Record<BuildingId, BuildingDef> = {
     text: 'Every unit is better armoured. Best between barracks and walls.',
     allowed: 'any',
     maxLevel: 1,
-    cost: flat({ gold: 6, iron: 2, hide: 2 }),
+    cost: flat({ gold: 6, stone: 2, earth: 2 }),
     base: { defPct: 0.08 },
     adjacency: [
       { per: { building: 'barracks' }, add: { defPct: 0.04 }, cap: 2 },
       { per: { building: 'walls' }, add: { defPct: 0.04 }, cap: 2 },
     ],
   },
-  ...(Object.fromEntries(
-    EXTRACTORS.map(([id, name, terrain]): [ExtractorId, BuildingDef] => {
-      const res = TERRAIN_DEFS[terrain].resource
-      const label = TERRAIN_DEFS[terrain].label.toLowerCase()
-      return [
-        id,
-        {
-          id,
-          name,
-          kind: 'extractor',
-          text: `Works ${label} for ${res}. +1 per neighbouring ${label} tile.`,
-          allowed: [terrain],
-          maxLevel: 1,
-          cost: flat(id === 'lumber-camp' ? { gold: 3 } : { gold: 3, timber: 1 }),
-          base: { [res]: 2 },
-          adjacency: [{ per: { sameTerrain: true }, add: { [res]: 1 }, cap: 3 }],
-        },
-      ]
-    }),
-  ) as Record<ExtractorId, BuildingDef>),
-  ...(Object.fromEntries(
-    AFFINITIES.map((a): [AcademyId, BuildingDef] => {
-      const d = AFFINITY_DEFS[a]
-      const recipe = d.parents.length ? ` Unlocks when ${d.parents.map((p) => AFFINITY_LABEL[p]).join(' and ')} reach Lv${UNLOCK_LEVEL}.` : ''
-      return [
-        academyId(a),
-        {
-          id: academyId(a),
-          name: d.academy,
-          kind: 'research',
-          affinity: a,
-          text: `Tier ${d.tier}. ${AFFINITY_LABEL[a]} level = academy level: more ${AFFINITY_LABEL[a]} citizens, stronger ${AFFINITY_LABEL[a]} units, bigger synergy multiplier.${recipe} Attunes to neighbouring ${TERRAIN_DEFS[d.attune].label.toLowerCase()}.`,
-          allowed: d.site,
-          unique: true,
-          maxLevel: 4,
-          // Higher tiers cost more; every material in the recipe is needed.
-          cost: (level: number) => ({
-            gold: (3 + 2 * level) * d.tier,
-            ...Object.fromEntries(d.materials.filter((m) => m !== 'food').map((m) => [m, 2 * level * d.tier])),
-          }),
-          base: {},
-          adjacency: [{ per: { terrain: d.attune }, add: { attune: 1 }, cap: 3 }],
-        },
-      ]
-    }),
-  ) as Record<AcademyId, BuildingDef>),
 }
 
 export const BUILDINGS: BuildingDef[] = Object.values(BUILDING_DEFS).filter((b) => b.kind !== 'capital')
 
+/** Display name at a level (the Mine becomes a Quarry, then an Excavator). */
+export const buildingName = (id: BuildingId, level = 1) => BUILDING_DEFS[id].levelNames?.[level - 1] ?? BUILDING_DEFS[id].name
+
+/** Base output for this building on this terrain at this level. */
+export const baseOutput = (def: BuildingDef, terrain: TerrainId, level = 1): Outputs =>
+  typeof def.base === 'function' ? def.base(terrain, level) : def.base
 
 export function canPlaceOn(def: BuildingDef, terrain: TerrainId): boolean {
-  if (!TERRAIN_DEFS[terrain].buildable) return false
-  return def.allowed === 'any' ? true : def.allowed.includes(terrain)
+  if (def.allowed === 'any') return TERRAIN_DEFS[terrain].buildable
+  return def.allowed.includes(terrain)
 }
 
 /** Total spent to reach `level`. */

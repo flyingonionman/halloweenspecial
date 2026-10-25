@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import { CONFIG, FRAME_STRIDE, RESOURCE_LABEL, TYPE_DEFS, finishBattle, primaryAffinity, type Material, type RosterEntry } from '../../game'
 import { useGame } from '../useGame'
 import { BattleCanvas, type PlaybackClock } from '../battle/BattleCanvas'
-import { AFFINITY_COLOR, RARITY_COLOR, TYPE_GLYPH } from '../theme'
+import { RARITY_COLOR, TYPE_GLYPH, unitColor } from '../theme'
 import { UnitCard } from '../components/UnitCard'
 
 const SPEEDS = [1, 2, 4]
@@ -125,7 +125,7 @@ function Roster({ entries, frame }: { entries: RosterEntry[]; frame: Float32Arra
         const frac = Math.max(0, hp / r.maxHp)
         return (
           <li key={r.id} className={hp <= 0 ? 'dead' : ''} style={{ '--rarity': RARITY_COLOR[r.rarity] } as React.CSSProperties}>
-            <span className="r-glyph" style={{ color: AFFINITY_COLOR[primaryAffinity(r.affinities)] }}>
+            <span className="r-glyph" style={{ color: unitColor(primaryAffinity(r.affinities)) }}>
               {TYPE_GLYPH[r.type]}
             </span>
             <span className="r-name">

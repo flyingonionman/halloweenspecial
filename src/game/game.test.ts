@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   CONFIG,
-  affinityBirthWeights,
+  affinityOdds,
+  rollAffinity,
+  buildCost,
   Rng,
   birthCitizens,
   birthRarityOdds,
@@ -35,9 +37,14 @@ import {
   effectiveYields,
   musterSize,
   birthContext,
-  buildBlock as buildBlockOf,
   isUnlocked,
-  AFFINITY_DEFS,
+  offerBlock,
+  offerToAcademy,
+  claimEarthCost,
+  canOffer,
+  offerLight,
+  buildingName,
+  TERRAIN_DEFS,
   troopEconomy,
   simulateCombat,
   tileAt,
@@ -45,7 +52,6 @@ import {
   unitStats,
   unitUpgradeCost,
   upgradeCost,
-  type Affinity,
   type GameState,
   type SpeciesId,
   type Unit,
@@ -70,7 +76,7 @@ const started = (seed: number, species: SpeciesId = 'human') => chooseSpecies(ne
 /** A hand-made 3-tile strip for adjacency tests: centre plus two neighbours. */
 function strip(centre: WorldMap['tiles'][number]['terrain'], east: WorldMap['tiles'][number]['terrain'], west: WorldMap['tiles'][number]['terrain']): WorldMap {
   const t = (q: number, terrain: typeof centre) => ({ q, r: 0, terrain, owned: true, building: null, camp: null })
-  return { radius: 1, homeBiome: 'forest', tiles: [t(0, centre), t(1, east), t(-1, west)] }
+  return { radius: 1, homeBiome: 'plains', tiles: [t(0, centre), t(1, east), t(-1, west)] }
 }
 
 describe('rng', () => {
@@ -90,7 +96,10 @@ describe('units', () => {
   it('veterans upgrade cheaper; max level cannot upgrade', () => {
     const fresh = mk({ rarity: 'epic' })
     expect(upgradeCost({ ...fresh, battlesSurvived: 3 })!.gold!).toBeLessThan(upgradeCost(fresh)!.gold!)
-    expect(upgradeCost(mk({ rarity: "epic" }, 3))!.iron).toBeGreaterThan(0)
+    // a weaponry unit trains with its roots' essences: fire and earth
+    expect(upgradeCost(mk({ rarity: 'epic' }, 3))!.fire).toBeGreaterThan(0)
+    expect(upgradeCost(mk({ rarity: 'epic' }, 3))!.earth).toBeGreaterThan(0)
+    expect(upgradeCost(mk({ rarity: 'epic' }, 3))!.fire!).toBeGreaterThan(upgradeCost(mk({ rarity: 'epic' }, 1))!.fire!)
     expect(upgradeCost(mk({ rarity: "epic" }, 3))!.gold!).toBeGreaterThan(upgradeCost(fresh)!.gold! * 3)
     expect(upgradeCost(mk({}, CONFIG.level.max))).toBeNull()
   })
@@ -126,14 +135,45 @@ describe('map', () => {
     expect(ownedTiles(a).some((t) => t.terrain === a.homeBiome)).toBe(true)
     for (const t of a.tiles.filter((x) => x.camp)) expect(hexDistance(t, { q: 0, r: 0 })).toBeGreaterThanOrEqual(CONFIG.map.campMinDistance)
   })
+
+  it('is one biome: 9 across, about half basic, no lone speciality tiles, one in the starting ring', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const m = generateMap(new Rng(seed))
+      expect(m.tiles).toHaveLength(61)
+      expect(TERRAIN_DEFS[m.homeBiome].basic).toBe(true)
+      const basic = m.tiles.filter((t) => t.terrain === m.homeBiome).length / m.tiles.length
+      expect(basic).toBeGreaterThan(0.4)
+      expect(basic).toBeLessThan(0.65)
+      const ring = ownedTiles(m).filter((t) => !t.building)
+      expect(ring.filter((t) => t.terrain !== m.homeBiome)).toHaveLength(1)
+      // every non-basic tile has a neighbour of the same terrain
+      for (const t of m.tiles.filter((x) => x.terrain !== m.homeBiome && !x.building)) {
+        const same = m.tiles.filter((n) => n.terrain === t.terrain && hexDistance(n, t) === 1)
+        expect(same.length, `seed ${seed} ${t.terrain} at ${t.q},${t.r}`).toBeGreaterThan(0)
+      }
+    }
+  })
 })
 
 describe('buildings & adjacency', () => {
-  it('extractors gain from matching neighbours', () => {
-    const lone = evaluateBuilding(strip('forest', 'plains', 'plains'), { q: 0, r: 0 }, 'lumber-camp')
-    const grove = evaluateBuilding(strip('forest', 'forest', 'forest'), { q: 0, r: 0 }, 'lumber-camp')
-    expect(lone.output.timber).toBe(2)
-    expect(grove.output.timber).toBe(4)
+  it('a mine digs its own tile, gains from matching neighbours, and grows into a quarry', () => {
+    const lone = evaluateBuilding(strip('volcanic', 'plains', 'plains'), { q: 0, r: 0 }, 'mine')
+    const field = evaluateBuilding(strip('volcanic', 'volcanic', 'volcanic'), { q: 0, r: 0 }, 'mine')
+    expect(lone.output.fire).toBe(2)
+    expect(field.output.fire).toBe(4)
+    expect(evaluateBuilding(strip('hills', 'plains', 'plains'), { q: 0, r: 0 }, 'mine').output.stone).toBe(3)
+    expect(evaluateBuilding(strip('volcanic', 'plains', 'plains'), { q: 0, r: 0 }, 'mine', 2).output.fire).toBe(3)
+    expect(buildingName('mine', 2)).toBe('Quarry')
+    expect(buildingName('mine', 3)).toBe('Excavator')
+  })
+
+  it('fisheries are the only building on water', () => {
+    const s = started(3)
+    const lake = { ...s, map: { ...s.map, tiles: s.map.tiles.map((t) => (t.owned && !t.building ? { ...t, terrain: 'lake' as const } : t)) } }
+    const t = ownedTiles(lake.map).find((x) => !x.building)!
+    expect(buildBlock(lake, t, 'market')).toBe('terrain')
+    expect(buildBlock({ ...lake, stock: { ...lake.stock, water: 0 } }, t, 'fishery')).toBe('cost')
+    expect(buildBlock({ ...lake, stock: { ...lake.stock, water: 9 } }, t, 'fishery')).toBeNull()
   })
 
   it('barracks feed on adjacent mines', () => {
@@ -143,19 +183,40 @@ describe('buildings & adjacency', () => {
     expect(evaluateBuilding(m, { q: 0, r: 0 }, 'barracks').output.atkPct!).toBeGreaterThan(before)
   })
 
-  it('academies attune to their terrain and set the affinity level', () => {
-    const m = strip('plains', 'volcanic', 'volcanic')
-    m.tiles[0]!.building = { id: 'fire-academy', level: 2 }
-    const c = city({ map: m })
-    expect(c.affinityLevels.fire).toBe(2)
-    expect(c.attune.fire).toBe(2)
+  it('academies: built empty, dedicated and raised by offerings; every academy after the first costs arcane', () => {
+    let s = started(4)
+    s = { ...s, stock: { ...s.stock, gold: 999, stone: 99, fire: 99, earth: 99, arcane: 0 } }
+    const [a, b] = ownedTiles(s.map).filter((t) => !t.building)
+    expect(buildCost(s, 'academy').arcane).toBeUndefined()
+    s = placeBuilding(s, a!, 'academy')
+    expect(tileAt(s.map, a!)!.building).toEqual({ id: 'academy', level: 0 })
+    expect(city(s).academies).toEqual([])
+    // the second academy needs arcane
+    expect(buildCost(s, 'academy').arcane).toBe(CONFIG.affinity.extraAcademyArcane)
+    expect(buildBlock(s, b!, 'academy')).toBe('cost')
+    s = { ...s, stock: { ...s.stock, arcane: 99 } }
+    s = placeBuilding(s, b!, 'academy')
+    expect(city(s).academyCount).toBe(2)
+
+    expect(offerBlock(s, a!, 'magma')).toBe('locked')
+    s = offerToAcademy(s, a!, 'fire')
+    expect(tileAt(s.map, a!)!.building).toMatchObject({ affinity: 'fire', level: 1 })
+    expect(offerBlock(s, a!, 'earth')).toBe('dedicated')
+    s = offerToAcademy(s, a!, 'fire')
+    s = offerToAcademy(offerToAcademy(s, b!, 'earth'), b!, 'earth')
+    expect(city(s).affinityLevels).toMatchObject({ fire: 2, earth: 2 })
+    expect(s.stock.fire).toBeLessThan(99)
+    // both parents at Lv2 open Magma for a third academy
+    const c = ownedTiles(s.map).find((t) => !t.building)!
+    s = placeBuilding(s, c, 'academy')
+    expect(offerBlock(s, c, 'magma')).toBeNull()
   })
 
   it('placement respects terrain, ownership, uniqueness and cost', () => {
     let s = started(3)
     const plains = ownedTiles(s.map).find((t) => t.terrain === 'plains' && !t.building)
-    const nonPlains = ownedTiles(s.map).find((t) => t.terrain !== 'plains' && t.terrain !== 'lake' && !t.building)
-    if (nonPlains) expect(buildBlock(s, nonPlains, 'farm')).toBe('terrain')
+    const dry = ownedTiles(s.map).find((t) => t.terrain !== 'lake' && !t.building)!
+    expect(buildBlock(s, dry, 'fishery')).toBe('terrain')
     expect(buildBlock(s, { q: 0, r: 0 }, 'farm')).toBe('occupied')
     if (plains) {
       s = placeBuilding(s, plains, 'farm')
@@ -167,6 +228,17 @@ describe('buildings & adjacency', () => {
 })
 
 describe('territory', () => {
+  it('earth pays for land instead of gold', () => {
+    const s = started(11)
+    const target = frontier(s.map).find((t) => !t.camp)!
+    expect(claimBlock(s, target, 'earth')).toBe('earth')
+    const rich = { ...s, stock: { ...s.stock, earth: 10 } }
+    const after = claimTile(rich, target, 'earth')
+    expect(tileAt(after.map, target)!.owned).toBe(true)
+    expect(after.stock.earth).toBe(10 - claimEarthCost(rich))
+    expect(after.stock.gold).toBe(rich.stock.gold)
+  })
+
   it('claims frontier tiles for gold, never camps', () => {
     const s = started(11)
     const target = frontier(s.map).find((t) => !t.camp)!
@@ -179,26 +251,37 @@ describe('territory', () => {
 })
 
 describe('citizens', () => {
-  it('land shapes affinities', () => {
-    const weights = (a: Affinity) => Object.fromEntries(['fire', 'water', 'earth', 'wind', 'arcane', 'light', 'dark'].map((x) => [x, x === a ? 30 : 1])) as Record<Affinity, number>
-    const born = birthCitizens({ population: 100, species: null, affinityWeights: weights('water'), affinityLevels: {} }, 400, new Rng(2), counter())
-    const water = born.filter((c) => c.unit.affinities.water).length
-    expect(water / 400).toBeGreaterThan(0.6)
-    // mutations still happen
-    expect(born.some((c) => !c.unit.affinities.water)).toBe(true)
+  it('without academies every citizen is born plain', () => {
+    const born = birthCitizens({ population: 100_000, species: null, academies: [] }, 200, new Rng(2), counter())
+    for (const c of born) expect(c.unit.affinities).toEqual({})
   })
 
-  it('locked affinities are never born', () => {
-    const s = started(21)
-    const born = birthCitizens(birthContext(s), 300, new Rng(3), counter())
-    for (const c of born) for (const a of Object.keys(c.unit.affinities)) expect(AFFINITY_DEFS[a as Affinity].tier).toBe(1)
+  it('academies give one affinity; their level caps the points', () => {
+    const academies = [
+      { affinity: 'water' as const, level: 1 },
+      { affinity: 'water' as const, level: 1 },
+      { affinity: 'water' as const, level: 2 },
+    ]
+    const born = birthCitizens({ population: 100, species: null, academies }, 2000, new Rng(3), counter())
+    const water1 = born.filter((c) => c.unit.affinities.water === 1).length / 2000
+    const water2 = born.filter((c) => c.unit.affinities.water === 2).length / 2000
+    for (const c of born) expect(Object.keys(c.unit.affinities).length).toBeLessThanOrEqual(1)
+    expect(born.some((c) => (c.unit.affinities.water ?? 0) > 2)).toBe(false)
+    // very likely water-1, a slim chance of water-2, and some plain citizens
+    expect(water1).toBeGreaterThan(0.5)
+    expect(water2).toBeGreaterThan(0.02)
+    expect(water2).toBeLessThan(0.15)
+    const odds = affinityOdds(academies)
+    expect(odds.none + odds.affinities.reduce((sum, a) => sum + a.chance, 0)).toBeCloseTo(1)
+    expect(odds.affinities[0]!.points[1]!).toBeLessThan(odds.affinities[0]!.points[0]!)
   })
 
-  it('owning more of a terrain raises its affinity birth weight', () => {
-    const s = started(21)
-    const before = affinityBirthWeights(city(s)).wind
-    const map = { ...s.map, tiles: s.map.tiles.map((t) => (t.owned && !t.building ? { ...t, terrain: 'highlands' as const } : t)) }
-    expect(affinityBirthWeights(city({ map })).wind).toBeGreaterThan(before)
+  it('rarity does not change affinity points', () => {
+    const academies = [{ affinity: 'fire' as const, level: 1 }]
+    const born = birthCitizens({ population: 1_000_000, species: null, academies }, 300, new Rng(5), counter())
+    expect(born.some((c) => c.unit.rarity !== 'common')).toBe(true)
+    for (const c of born) expect(c.unit.affinities.fire ?? 1).toBe(1)
+    expect(rollAffinity([], new Rng(1))).toBeNull()
   })
 })
 
@@ -215,7 +298,7 @@ describe('species', () => {
     expect(started(8, 'ork').muster.length).toBe(musterSize('ork'))
     expect(musterSize('ork')).toBeGreaterThan(musterSize('human'))
     const s = started(9, 'dwarf')
-    const born = birthCitizens({ population: 100, species: 'dwarf', affinityWeights: affinityBirthWeights(city(s)), affinityLevels: {} }, 300, new Rng(1), counter())
+    const born = birthCitizens({ ...birthContext(s), species: 'dwarf' }, 300, new Rng(1), counter())
     expect(born.filter((c) => isRanged(c.unit.type)).length / 300).toBeLessThan(0.12)
   })
 })
@@ -241,7 +324,7 @@ describe('synergies', () => {
 
   it('tier-1 synergies feed the economy', () => {
     const troop = [mk({ affinities: { earth: 3 } }), mk({ affinities: { earth: 3 } })]
-    expect(troopEconomy(troop).yieldPct.stone!).toBeGreaterThan(0)
+    expect(troopEconomy(troop).yieldPct.earth!).toBeGreaterThan(0)
   })
 })
 
@@ -303,13 +386,20 @@ describe('turns & deeds', () => {
     expect(next.muster.some((c) => s.muster.some((o) => o.unit.uid === c.unit.uid))).toBe(false)
   })
 
-  it('higher-tier academies unlock through their parents', () => {
+  it('higher tiers unlock through their parents', () => {
     expect(isUnlocked('fire', {})).toBe(true)
     expect(isUnlocked('magma', { fire: 1, earth: 2 })).toBe(false)
     expect(isUnlocked('magma', { fire: 2, earth: 2 })).toBe(true)
-    const s = started(4)
+  })
+
+  it('a church turns light into morale', () => {
+    const s = { ...started(4), morale: 20 }
     const t = ownedTiles(s.map).find((x) => !x.building)!
-    expect(buildBlockOf({ ...s, stock: { ...s.stock, gold: 999 } }, t, 'magma-academy')).toBe('locked')
+    const built = placeBuilding({ ...s, stock: { ...s.stock, gold: 99, stone: 99 } }, t, 'church')
+    expect(canOffer(built)).toBe(false)
+    const lit = { ...built, stock: { ...built.stock, light: 10 } }
+    expect(offerLight(lit).morale).toBe(20 + CONFIG.faith.moralePerOffering)
+    expect(offerLight(lit).stock.light).toBe(10 - CONFIG.faith.lightPerOffering)
   })
 
   it('razing a camp claims its tile; fallen units die', () => {

@@ -4,7 +4,7 @@
  * its main affinity; the frame is its rarity.
  */
 import { primaryAffinity, type Unit } from '../../game'
-import { AFFINITY_COLOR, RARITY_COLOR } from '../theme'
+import { RARITY_COLOR, unitColor } from '../theme'
 
 const SKIN = ['#f1d2b6', '#e0b18c', '#c98f63', '#a86c45', '#7c4a2c', '#d9c2a5', '#b8c9a0', '#9fb2c9']
 const HAIR = ['#2b1d14', '#5a3a22', '#8a5a2b', '#c9a15a', '#d8d2c4', '#6b2b1e', '#1e1e24']
@@ -24,7 +24,7 @@ export function Portrait({ unit, size = 72 }: { unit: Unit; size?: number }) {
   const pick = <T,>(a: T[]) => a[Math.floor(r() * a.length)]!
   const skin = pick(SKIN)
   const hair = pick(HAIR)
-  const aff = AFFINITY_COLOR[primaryAffinity(unit.affinities)]
+  const aff = unitColor(primaryAffinity(unit.affinities))
   const frame = RARITY_COLOR[unit.rarity]
   const beard = r() < 0.35
   const scar = r() < 0.2

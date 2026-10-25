@@ -19,7 +19,12 @@ import {
   TERRAIN_DEFS,
   TYPE_DEFS,
   UNIT_TYPES,
-  academyId,
+  baseOutput,
+  buildingName,
+  landOf,
+  researchCost,
+  BIOMES,
+  BIOME_SPECIALS,
   affinitiesOfTier,
   city,
   isUnlocked,
@@ -109,14 +114,12 @@ function Cost({ cost }: { cost: Cost }) {
   )
 }
 
-const ruleTarget = (r: AdjacencyRule, self: BuildingDef) =>
+const ruleTarget = (r: AdjacencyRule, _self: BuildingDef) =>
   'terrain' in r.per
-    ? TERRAIN_DEFS[r.per.terrain].label
+    ? (typeof r.per.terrain === 'string' ? [r.per.terrain] : r.per.terrain).map((t) => TERRAIN_DEFS[t].label).join(' or ')
     : 'building' in r.per
       ? BUILDING_DEFS[r.per.building].name
-      : self.allowed !== 'any' && self.allowed[0]
-        ? TERRAIN_DEFS[self.allowed[0]].label
-        : 'same terrain'
+      : 'tile of the same terrain'
 
 function Adjacency({ def }: { def: BuildingDef }) {
   if (!def.adjacency.length) return <span className="muted">No adjacency bonus.</span>
@@ -124,7 +127,7 @@ function Adjacency({ def }: { def: BuildingDef }) {
     <ul className="lex-adj">
       {def.adjacency.map((r, i) => (
         <li key={i}>
-          <span className="adj-arrow">⬡</span> {fmtOutputs(r.add)} per adjacent <b>{ruleTarget(r, def)}</b>
+          <span className="adj-arrow">⬡</span> {r.add === 'tile' ? '+1 of the tile’s resource' : fmtOutputs(r.add)} per adjacent <b>{ruleTarget(r, def)}</b>
           {r.cap ? <small> (max {r.cap})</small> : null}
         </li>
       ))}
@@ -169,9 +172,10 @@ function Affinities() {
   return (
     <div className="lex-affinities">
       <p className="lede">
-        Tier 1 comes from your land (or a Church / Crypt) and mostly feeds your economy. Every higher affinity unlocks when its parents’ academies reach Lv
-        {CONFIG.affinity.unlockLevel}: then its academy can be built on its site and its citizens start being born. Troop points set each synergy’s <b>tier</b> (
-        {CONFIG.affinity.thresholds.join(' / ')}); its academy level sets the <b>strength</b>. Most synergies empower only the units carrying the affinity; ones marked <i>whole troop</i> empower everyone.
+        Affinities come only from academies, never from land: citizens are born plain unless an academy dedicated to an affinity gives them one. You dedicate and
+        raise academies with the essences of an affinity’s tier-1 roots. Tier 1 mostly feeds your economy. Higher affinities open once each parent has an academy at
+        Lv{CONFIG.affinity.unlockLevel}. Troop points set each synergy’s <b>tier</b> ({CONFIG.affinity.thresholds.join(' / ')}); your best academy of it sets the{' '}
+        <b>strength</b>. Most synergies empower only the units with the affinity; ones marked <i>whole troop</i> empower everyone.
       </p>
       <div className="lex-map-wrap">
         <svg className="lex-tree-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Affinity research tree">
@@ -233,8 +237,12 @@ function Affinities() {
                     <span style={{ color: AFFINITY_COLOR[a] }}>{AFFINITY_GLYPH[a]}</span> {d.label} {d.team && <small className="lex-tag">whole troop</small>}
                   </h4>
                   <p className="muted">
-                    {d.parents.length ? `${d.parents.map((p) => AFFINITY_LABEL[p]).join(' + ')} → ` : d.land ? `${d.land.map((x) => TERRAIN_DEFS[x].label).join(', ')} land · ` : ''}
-                    {d.academy} on {d.site === 'any' ? 'any land' : d.site.map((x) => TERRAIN_DEFS[x].label).join(', ')}
+                    {d.parents.length
+                      ? `${d.parents.map((p) => AFFINITY_LABEL[p]).join(' + ')} · `
+                      : landOf(a).length
+                        ? `essence from ${landOf(a).map((x) => TERRAIN_DEFS[x].label).join(', ')} · `
+                        : a === 'light' ? 'essence from a Church · ' : 'essence from a Crypt · '}
+                    dedicate for <Cost cost={researchCost(a, 1)} />
                   </p>
                   {d.economy && (
                     <div className="lex-tiers">
@@ -258,37 +266,31 @@ function Affinities() {
 
 // ── Buildings ─────────────────────────────────────────────────────────
 
+const BUILDING_GROUPS: { label: string; kinds: BuildingDef['kind'][] }[] = [
+  { label: 'Gathering & research', kinds: ['gather', 'research'] },
+  { label: 'Civic & faith', kinds: ['capital', 'civic', 'faith'] },
+  { label: 'Military', kinds: ['military'] },
+]
+
 function Buildings() {
-  const generic = Object.values(BUILDING_DEFS).filter((b) => b.kind === 'civic' || b.kind === 'military' || b.kind === 'capital')
-  const extractors = Object.values(BUILDING_DEFS).filter((b) => b.kind === 'extractor')
   return (
     <div>
       <p className="lede">
-        Academies are the research tree: one per affinity, built on its site from its materials. Extractors turn terrain into materials. Civic and military buildings work
-        anywhere. Adjacency rules (⬡) are how placement pays off.
+        Every building is built from stone. One Mine line digs whatever its tile holds and grows into a Quarry, then an Excavator. Academies, as many as you
+        like, are dedicated to an affinity with essences and are the only source of affinities at birth. Adjacency rules (⬡) are how placement pays off.
       </p>
-      {[1, 2, 3, 4].map((t) => (
-        <section key={t}>
-          <h3 className="section-title">Tier {t} academies</h3>
+      {BUILDING_GROUPS.map((g) => (
+        <section key={g.label}>
+          <h3 className="section-title">{g.label}</h3>
           <div className="lex-grid">
-            {affinitiesOfTier(t).map((a) => (
-              <AcademyCard key={a} a={a} />
-            ))}
+            {Object.values(BUILDING_DEFS)
+              .filter((b) => g.kinds.includes(b.kind))
+              .map((b) => (
+                <BuildingCard key={b.id} b={b} />
+              ))}
           </div>
         </section>
       ))}
-      <h3 className="section-title">Extractors</h3>
-      <div className="lex-grid">
-        {extractors.map((b) => (
-          <BuildingCard key={b.id} b={b} />
-        ))}
-      </div>
-      <h3 className="section-title">Civic & military</h3>
-      <div className="lex-grid">
-        {generic.map((b) => (
-          <BuildingCard key={b.id} b={b} />
-        ))}
-      </div>
     </div>
   )
 }
@@ -303,40 +305,25 @@ function BuildingCard({ b }: { b: BuildingDef }) {
       <p className="muted">{b.text}</p>
       <div className="lex-row">
         <span className="label">Cost</span> {b.kind === 'capital' ? <span className="muted">—</span> : <Cost cost={b.cost(1)} />}
-        <span className="label">Gives</span> <span className="mono">{fmtOutputs(b.base)}</span>
+        <span className="label">Gives</span>{' '}
+        <span className="mono">{b.id === 'mine' ? 'the tile’s resource: raw yield + level' : b.id === 'academy' ? 'citizens with its affinity' : fmtOutputs(baseOutput(b, 'plains'))}</span>
       </div>
       <div className="lex-row">
         <span className="label">On</span> {b.allowed === 'any' ? 'any land' : b.allowed.length ? b.allowed.map((t) => TERRAIN_DEFS[t].label).join(', ') : 'start only'}
         {b.unique && <span className="lex-tag">unique</span>}
       </div>
       <Adjacency def={b} />
+      {b.maxLevel > 1 && b.id !== 'academy' && (
+        <ol className="lex-levels">
+          {Array.from({ length: b.maxLevel }, (_, i) => (
+            <li key={i}>
+              <span className="lex-lv">{b.levelNames ? buildingName(b.id, i + 1) : `Lv${i + 1}`}</span>
+              <Cost cost={b.cost(i + 1)} />
+            </li>
+          ))}
+        </ol>
+      )}
       {feeders.length > 0 && <p className="lex-feeds">Boosts neighbouring {feeders.map((f) => f.name).join(', ')}.</p>}
-    </div>
-  )
-}
-
-function AcademyCard({ a }: { a: Affinity }) {
-  const d = AFFINITY_DEFS[a]
-  const b = BUILDING_DEFS[academyId(a)]
-  const A = CONFIG.affinity
-  return (
-    <div className="lex-card" style={{ '--accent': AFFINITY_COLOR[a] } as React.CSSProperties}>
-      <h4 data-help={`building:${b.id}`}>
-        <span style={{ color: AFFINITY_COLOR[a] }}>{AFFINITY_GLYPH[a]}</span> {d.academy}
-      </h4>
-      <p className="muted">
-        {d.parents.length ? `Unlocks at ${d.parents.map((p) => `${AFFINITY_LABEL[p]} Lv${A.unlockLevel}`).join(' + ')}. ` : ''}
-        Built on {d.site === 'any' ? 'any land' : d.site.map((x) => TERRAIN_DEFS[x].label).join(', ')}; attunes to {TERRAIN_DEFS[d.attune].label.toLowerCase()}.
-      </p>
-      <ol className="lex-levels">
-        {Array.from({ length: b.maxLevel }, (_, i) => (
-          <li key={i}>
-            <span className="lex-lv">Lv{i + 1}</span>
-            <Cost cost={b.cost(i + 1)} />
-            <span className="lex-lv-gives">synergies ×{A.levelMult[i + 1]}</span>
-          </li>
-        ))}
-      </ol>
     </div>
   )
 }
@@ -347,6 +334,47 @@ function Units() {
   return (
     <div>
       <p className="lede">A unit’s type is how it fights. Its affinities only feed synergies. Its rarity comes from your population when it was born.</p>
+
+      <h3 className="section-title">Skills</h3>
+      <p className="muted">
+        Every unit has one skill, set by its type: all Fighters Cleave, all Tanks Taunt, and so on. Skills fill from <b>energy</b>: +{CONFIG.combat.energyPerAttack} each time
+        the unit attacks, +{CONFIG.combat.energyPerHit} each time it’s hit. When energy is full the unit casts its skill instead of a normal attack, then starts again from
+        zero. Skills scale with the unit’s attack, so rarity, level and ATK bonuses all make them hit harder; ability-power and energy-gain synergies (Arcane, Spellblade…)
+        make them stronger or faster.
+      </p>
+      <table className="lex-table">
+        <thead>
+          <tr>
+            <th>Skill</th>
+            <th>Type</th>
+            <th>Energy</th>
+            <th>Casts after</th>
+            <th>Effect</th>
+          </tr>
+        </thead>
+        <tbody>
+          {UNIT_TYPES.map((t) => {
+            const d = TYPE_DEFS[t]
+            const attacks = Math.ceil(d.base.maxEnergy / CONFIG.combat.energyPerAttack)
+            return (
+              <tr key={t}>
+                <td>
+                  <b>{d.abilityLabel}</b>
+                </td>
+                <td data-help={`type:${t}`}>
+                  {TYPE_GLYPH[t]} {d.label}
+                </td>
+                <td>{d.base.maxEnergy}</td>
+                <td>
+                  ~{attacks} attack{attacks === 1 ? '' : 's'}
+                </td>
+                <td className="wrap">{d.abilityText}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+
       <h3 className="section-title">Types</h3>
       <table className="lex-table">
         <thead>
@@ -393,7 +421,6 @@ function Units() {
             <th>Rarity</th>
             <th>Unlocks at</th>
             <th>Stats</th>
-            <th>Affinity points</th>
             <th>Price</th>
           </tr>
         </thead>
@@ -405,7 +432,6 @@ function Units() {
               </td>
               <td>{r === 'common' ? 'always' : fmtPop(CONFIG.rarityThresholds[r])}</td>
               <td>×{CONFIG.rarityStatMult[r]}</td>
-              <td>{CONFIG.affinity.pointsByRarity[r]}</td>
               <td>{CONFIG.rarityPrice[r]}</td>
             </tr>
           ))}
@@ -444,14 +470,14 @@ function Terrain() {
           <th>Terrain</th>
           <th>Raw yield</th>
           <th>Affinity</th>
-          <th>Extractor</th>
+          <th>Built on it</th>
           <th>Buildable</th>
         </tr>
       </thead>
       <tbody>
         {TERRAINS.map((t) => {
           const d = TERRAIN_DEFS[t]
-          const ex = Object.values(BUILDING_DEFS).find((b) => b.kind === 'extractor' && b.allowed !== 'any' && b.allowed.includes(t))
+          const biomes = BIOMES.filter((b) => b === t || BIOME_SPECIALS[b].includes(t))
           return (
             <tr key={t}>
               <td data-help={`terrain:${t}`}>
@@ -469,7 +495,10 @@ function Terrain() {
                   '—'
                 )}
               </td>
-              <td>{ex?.name ?? (t === 'plains' ? 'Farm' : '—')}</td>
+              <td>
+                {t === 'lake' ? 'Fishery' : t === 'plains' ? 'Farm' : 'Mine'}
+                {biomes.length > 0 && <small className="muted"> · {biomes.map((b) => TERRAIN_DEFS[b].label).join(', ')} biome</small>}
+              </td>
               <td>{d.buildable ? 'yes' : 'no'}</td>
             </tr>
           )

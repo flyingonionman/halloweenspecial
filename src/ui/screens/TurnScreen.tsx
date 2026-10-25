@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  AFFINITIES,
   AFFINITY_DEFS,
   AFFINITY_LABEL,
   BUILDINGS,
@@ -12,10 +11,14 @@ import {
   STOCK_RESOURCES,
   TERRAIN_DEFS,
   TYPE_DEFS,
-  affinityBirthWeights,
   affinityOdds,
   birthRarityOdds,
   buildBlock,
+  buildCost,
+  buildingName,
+  canOffer,
+  claimEarthCost,
+  offerLight,
   campLoot,
   campRarityHint,
   canRecruit,
@@ -49,18 +52,70 @@ import {
   trade,
   upgradeBuilding,
   type BuildingId,
+  type GameState,
   type Hex,
   type Material,
+  type Outputs,
+  type ResourceId,
 } from '../../game'
 import { useGame } from '../useGame'
-import { Board3D, type TilePreview } from '../board/Board3D'
+import { Board3D, type TileOverlay, type TilePreview } from '../board/Board3D'
 import { BuildPanel } from '../board/BuildPanel'
 import { TroopPanel } from '../components/TroopPanel'
 import { Portrait } from '../components/Portrait'
 import { UnitDetail } from '../components/UnitDetail'
+import { AcademyPanel } from '../components/AcademyPanel'
+import { useRequirementCheck } from '../toast'
 import { BuildingGlyph, CostChips } from '../components/BuildingBits'
 import { fmtOutputs, outputParts, outputScore } from '../format'
-import { AFFINITY_COLOR, AFFINITY_GLYPH, RARITY_COLOR, RESOURCE_COLOR, RESOURCE_GLYPH, TERRAIN_COLOR, fmtPop } from '../theme'
+import { AFFINITY_COLOR, AFFINITY_GLYPH, KIND_COLOR, PLAIN_COLOR, RARITY_COLOR, RESOURCE_COLOR, RESOURCE_GLYPH, TERRAIN_COLOR, fmtPop } from '../theme'
+
+// ── Map lenses (the eye toggle) ───────────────────────────────────────
+
+type Lens = 'normal' | 'resources' | 'buildings'
+const LENSES: Lens[] = ['normal', 'resources', 'buildings']
+const LENS_LABEL: Record<Lens, string> = { normal: 'Normal view', resources: 'Resources', buildings: 'Buildings' }
+
+/** Glyph-and-number summary of a tile's output, e.g. "♨3 ▧1". */
+const compact = (o: Outputs) =>
+  (Object.entries(o) as [string, number][])
+    .filter(([k, v]) => v > 0 && k in RESOURCE_GLYPH)
+    .map(([k, v]) => `${RESOURCE_GLYPH[k as ResourceId]}${v}`)
+    .join(' ')
+
+function lensOverlays(s: GameState, lens: Lens): Record<string, TileOverlay> | null {
+  if (lens === 'normal') return null
+  const c = city(s)
+  const out: Record<string, TileOverlay> = {}
+  for (const t of s.map.tiles) {
+    const k = hexKey(t)
+    if (lens === 'resources') {
+      // Owned: what it actually makes. Wild: what it would give.
+      const o = t.owned ? (c.tiles[k]?.output ?? {}) : { [TERRAIN_DEFS[t.terrain].resource]: TERRAIN_DEFS[t.terrain].rawYield }
+      const main = (Object.entries(o) as [string, number][]).filter(([r]) => r in RESOURCE_COLOR).sort((a, b) => b[1] - a[1])[0]
+      if (!main) continue
+      // Wild tiles get the tint only; labels on every tile are too much.
+      out[k] = { color: RESOURCE_COLOR[main[0] as ResourceId], text: t.owned ? compact(o) : '', faint: !t.owned }
+    } else {
+      if (t.camp) {
+        out[k] = { color: '#c94a3a', text: `☠ ${t.camp.name}`, faint: !frontier(s.map).some((f) => f.q === t.q && f.r === t.r) }
+        continue
+      }
+      const b = t.building
+      if (!b) continue
+      const def = BUILDING_DEFS[b.id]
+      const color = b.affinity ? AFFINITY_COLOR[b.affinity] : KIND_COLOR[def.kind]
+      const name =
+        b.id === 'academy'
+          ? b.affinity
+            ? `${AFFINITY_GLYPH[b.affinity]} ${AFFINITY_LABEL[b.affinity]} Lv${b.level}`
+            : 'Empty academy'
+          : `${buildingName(b.id, b.level)}${def.maxLevel > 1 && !def.levelNames ? ` Lv${b.level}` : ''}`
+      out[k] = { color, text: name }
+    }
+  }
+  return out
+}
 
 type RightTab = 'tile' | 'muster' | 'troop' | 'build' | 'scout'
 type LeftTab = 'population' | 'resources'
@@ -73,23 +128,22 @@ export function TurnScreen() {
   const [left, setLeft] = useState<LeftTab>('population')
 
   const frontierKeys = useMemo(() => new Set(frontier(s.map).map(hexKey)), [s.map])
+  const check = useRequirementCheck()
 
+  // Placement: what the building would make on each valid tile. No "best spot" highlight: players can think.
   const previews = useMemo(() => {
     if (!armed) return null
     const out: Record<string, TilePreview> = {}
-    let best = -Infinity
-    const scored: [string, number, string][] = []
     for (const t of ownedTiles(s.map)) {
       const block = buildBlock(s, t, armed)
       if (block && block !== 'cost') continue
-      const o = evaluateBuilding(s.map, t, armed).output
-      const score = outputScore(o)
-      best = Math.max(best, score)
-      scored.push([hexKey(t), score, fmtOutputs(o)])
+      out[hexKey(t)] = { text: fmtOutputs(evaluateBuilding(s.map, t, armed).output), best: false }
     }
-    for (const [k, score, text] of scored) out[k] = { text, best: score === best && scored.length > 1 }
     return out
   }, [s, armed])
+
+  const [lens, setLens] = useState<Lens>('normal')
+  const overlays = useMemo(() => lensOverlays(s, lens), [s, lens])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setArmed(null)
@@ -99,7 +153,9 @@ export function TurnScreen() {
 
   const onSelect = (h: Hex | null) => {
     if (armed && h) {
-      if (!buildBlock(s, h, armed)) {
+      const block = buildBlock(s, h, armed)
+      if (block === 'cost') check(null, buildCost(s, armed))
+      if (!block) {
         dispatch((st) => placeBuilding(st, h, armed))
         setSelected(h)
         setArmed(null)
@@ -136,7 +192,20 @@ export function TurnScreen() {
         <div className="rail-body">{left === 'population' ? <PopulationTab /> : <ResourcesTab />}</div>
       </aside>
       <section className="board-wrap">
-        <Board3D map={s.map} selected={selected} frontier={frontierKeys} previews={previews} onSelect={onSelect} />
+        <Board3D map={s.map} selected={selected} frontier={frontierKeys} previews={previews} overlays={overlays} onSelect={onSelect} />
+        <button
+          className={`lens-toggle ${lens !== 'normal' ? 'on' : ''}`}
+          onClick={() => setLens(LENSES[(LENSES.indexOf(lens) + 1) % LENSES.length]!)}
+          title="Cycle the map view"
+          aria-label={`Map view: ${LENS_LABEL[lens]}. Click to cycle.`}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+          {LENS_LABEL[lens]}
+          <small>{LENSES.indexOf(lens) + 1}/{LENSES.length}</small>
+        </button>
         {armed && (
           <div className="armed-hint">
             Placing <b>{BUILDING_DEFS[armed].name}</b>. Click a highlighted tile. <kbd>Esc</kbd> to cancel.
@@ -170,9 +239,9 @@ function PopulationTab() {
   const c = city(s)
   const rar = birthRarityOdds(s.population, s.species)
   const tp = tierProgress(s.population)
-  const aff = affinityOdds(affinityBirthWeights(c))
+  const odds = affinityOdds(c.academies)
   // Grouped by tier, most likely first within each tier.
-  const born = AFFINITIES.filter((a) => aff[a] > 0).sort((a, b) => AFFINITY_DEFS[a].tier - AFFINITY_DEFS[b].tier || aff[b] - aff[a])
+  const born = [...odds.affinities].sort((x, y) => AFFINITY_DEFS[x.affinity].tier - AFFINITY_DEFS[y.affinity].tier || y.chance - x.chance)
 
   return (
     <div className="pop-tab">
@@ -219,22 +288,37 @@ function PopulationTab() {
         Affinities of new citizens
       </h3>
       <ul className="aff-odds">
-        {born.map((a, i) => [
-          AFFINITY_DEFS[a].tier !== AFFINITY_DEFS[born[i - 1] ?? a].tier || i === 0 ? (
+        <li data-help="birth-odds">
+          <span style={{ color: PLAIN_COLOR }}>○</span>
+          <span className="aff-name">No affinity</span>
+          <span className="aff-bar">
+            <i style={{ width: `${odds.none * 100}%`, background: PLAIN_COLOR }} />
+          </span>
+          <span className="aff-pct">{Math.round(odds.none * 100)}%</span>
+        </li>
+        {born.map(({ affinity: a, chance, points }, i) => [
+          i === 0 || AFFINITY_DEFS[a].tier !== AFFINITY_DEFS[born[i - 1]!.affinity].tier ? (
             <li key={`t${AFFINITY_DEFS[a].tier}`} className="aff-tier">
               Tier {AFFINITY_DEFS[a].tier}
             </li>
           ) : null,
-          <li key={a} data-help={`affinity:${a}`}>
+          <li key={a} data-help={`affinity:${a}`} title={points.map((p, k) => `${k + 1} pt: ${Math.round(p * 100)}%`).join(' · ')}>
             <span style={{ color: AFFINITY_COLOR[a] }}>{AFFINITY_GLYPH[a]}</span>
-            <span className="aff-name">{AFFINITY_LABEL[a]}</span>
-            <span className="aff-bar">
-              <i style={{ width: `${aff[a] * 100}%`, background: AFFINITY_COLOR[a] }} />
+            <span className="aff-name">
+              {AFFINITY_LABEL[a]}
+              {points.length > 1 && <small> up to {points.length} pt</small>}
             </span>
-            <span className="aff-pct">{Math.round(aff[a] * 100)}%</span>
-            {c.affinityLevels[a] > 0 && <span className="aff-lv">Lv{c.affinityLevels[a]}</span>}
+            <span className="aff-bar">
+              <i style={{ width: `${chance * 100}%`, background: AFFINITY_COLOR[a] }} />
+            </span>
+            <span className="aff-pct">{Math.round(chance * 100)}%</span>
           </li>,
         ])}
+        {!born.length && (
+          <li className="muted" style={{ display: 'block' }} data-help="kind:research">
+            Nobody is born with an affinity until you build an academy and dedicate it.
+          </li>
+        )}
       </ul>
     </div>
   )
@@ -243,11 +327,9 @@ function PopulationTab() {
 // ── Left: resources ───────────────────────────────────────────────────
 
 function ResourcesTab() {
-  const [s, dispatch] = useGame()
+  const [s] = useGame()
   const c = city(s)
   const y = effectiveYields(s)
-  const [give, setGive] = useState<Material>('timber')
-  const [get, setGet] = useState<Material>('iron')
 
   return (
     <div className="res-tab">
@@ -294,41 +376,15 @@ function ResourcesTab() {
         </div>
         <div data-help="claim">
           <dt>Next claim</dt>
-          <dd>{claimCost(s)} gold</dd>
+          <dd>
+            {claimCost(s)} gold / {claimEarthCost(s)} mud
+          </dd>
         </div>
         <div className="wide" data-help="troop-bonus">
           <dt>Troop bonuses</dt>
           <dd>{c.atkPct || c.hpPct || c.defPct ? fmtOutputs({ atkPct: c.atkPct, hpPct: c.hpPct, defPct: c.defPct }) : 'none yet'}</dd>
         </div>
       </dl>
-
-      {c.tradeRate !== null && (
-        <div className="trade-box">
-          <span className="label" data-help="trade">
-            Trade {c.tradeRate}:1
-          </span>
-          <div className="trade">
-            <select value={give} onChange={(e) => setGive(e.target.value as Material)}>
-              {MATERIALS.map((m) => (
-                <option key={m} value={m}>
-                  {RESOURCE_LABEL[m]} ({s.stock[m]})
-                </option>
-              ))}
-            </select>
-            <span>→</span>
-            <select value={get} onChange={(e) => setGet(e.target.value as Material)}>
-              {MATERIALS.map((m) => (
-                <option key={m} value={m}>
-                  {RESOURCE_LABEL[m]}
-                </option>
-              ))}
-            </select>
-            <button className="btn btn-small" disabled={!canTrade(s, give, get)} onClick={() => dispatch((st) => trade(st, give, get))}>
-              Trade
-            </button>
-          </div>
-        </div>
-      )}
 
       <ol className="chronicle" data-help="chronicle">
         {[...s.log].reverse().slice(0, 4).map((l, i) => (
@@ -351,7 +407,60 @@ const CLAIM_REASON = {
   camp: 'A camp holds this tile. Raze it to claim it.',
   cap: 'Your people can’t hold more land yet. Grow your population.',
   gold: 'Not enough gold.',
+  earth: 'Not enough mud.',
 } as const
+
+/** Opened from the Trading Post's tile. */
+function TradeBox() {
+  const [s, dispatch] = useGame()
+  const rate = city(s).tradeRate
+  const [give, setGive] = useState<Material>('stone')
+  const [get, setGet] = useState<Material>('fire')
+  if (rate === null) return null
+  return (
+    <div className="trade-box">
+      <span className="label" data-help="trade">
+        Trade {rate}:1
+      </span>
+      <div className="trade">
+        <select value={give} onChange={(e) => setGive(e.target.value as Material)}>
+          {MATERIALS.map((m) => (
+            <option key={m} value={m}>
+              {RESOURCE_LABEL[m]} ({s.stock[m]})
+            </option>
+          ))}
+        </select>
+        <span>→</span>
+        <select value={get} onChange={(e) => setGet(e.target.value as Material)}>
+          {MATERIALS.map((m) => (
+            <option key={m} value={m}>
+              {RESOURCE_LABEL[m]}
+            </option>
+          ))}
+        </select>
+        <button className="btn btn-small" disabled={!canTrade(s, give, get)} onClick={() => dispatch((st) => trade(st, give, get))}>
+          Trade
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** Opened from a Church's tile: light's secondary role. */
+function OfferBox() {
+  const [s, dispatch] = useGame()
+  const f = CONFIG.faith
+  return (
+    <div className="trade-box">
+      <span className="label" data-help="resource:light">
+        Offering
+      </span>
+      <button className="btn btn-small" disabled={!canOffer(s)} onClick={() => dispatch(offerLight)}>
+        Offer <CostChips cost={{ light: f.lightPerOffering }} /> for +{f.moralePerOffering} morale
+      </button>
+    </div>
+  )
+}
 
 const RAID_REASON = {
   'no-camp': '',
@@ -374,7 +483,7 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
       <header className="tile-head" style={{ '--terrain': TERRAIN_COLOR[t.terrain] } as React.CSSProperties} data-help={def ? `building:${def.id}` : `terrain:${t.terrain}`}>
         <span className="tile-swatch" />
         <div>
-          <h3>{def ? def.name : td.label}</h3>
+          <h3>{def ? buildingName(def.id, t.building!.level) : td.label}</h3>
           <p>
             {td.label} · yields {RESOURCE_LABEL[td.resource]}
             {td.affinity && (
@@ -411,7 +520,8 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
               </span>
               {t.building!.level < def.maxLevel && (
                 <button className="btn btn-small" disabled={!canUpgradeBuilding(s, t)} onClick={() => dispatch((st) => upgradeBuilding(st, t))}>
-                  Raise to Lv{t.building!.level + 1} <CostChips cost={def.cost(t.building!.level + 1)} />
+                  {def.levelNames ? `Upgrade to ${buildingName(def.id, t.building!.level + 1)}` : `Raise to Lv${t.building!.level + 1}`}{' '}
+                  <CostChips cost={def.cost(t.building!.level + 1)} />
                 </button>
               )}
             </div>
@@ -426,19 +536,29 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
         </div>
       )}
 
-      {t.owned && !t.building && td.buildable && <BuildOptions hex={t} />}
-      {t.owned && !td.buildable && <p className="muted pad">Lakes can’t be built on, but they feed you and boost farms and trading posts beside them.</p>}
+      {t.owned && def?.id === 'academy' && <AcademyPanel hex={t} />}
+      {t.owned && def?.id === 'trading-post' && <TradeBox />}
+      {t.owned && def?.id === 'church' && <OfferBox />}
+
+      {t.owned && !t.building && <BuildOptions hex={t} />}
 
       {!t.owned && !t.camp && (
         <div className="tile-actions">
           {isFrontier ? (
             (() => {
-              const block = claimBlock(s, t)
+              const gold = claimBlock(s, t, 'gold')
+              const earth = claimBlock(s, t, 'earth')
+              const block = gold && earth ? (gold === 'gold' ? earth : gold) : null
               return (
                 <>
-                  <button className="btn btn-primary" data-help="claim" disabled={!!block} onClick={() => dispatch((st) => claimTile(st, t))}>
-                    Claim for <b className="gold">{claimCost(s)}</b> gold
-                  </button>
+                  <div className="row">
+                    <button className="btn btn-primary" data-help="claim" disabled={!!gold} onClick={() => dispatch((st) => claimTile(st, t, 'gold'))}>
+                      Claim · <b className="gold">{claimCost(s)}</b> gold
+                    </button>
+                    <button className="btn" data-help="resource:earth" disabled={!!earth} onClick={() => dispatch((st) => claimTile(st, t, 'earth'))}>
+                      Claim · <CostChips cost={{ earth: claimEarthCost(s) }} />
+                    </button>
+                  </div>
                   {block && <p className="muted">{CLAIM_REASON[block]}</p>}
                 </>
               )

@@ -15,15 +15,15 @@ export const CONFIG = {
   start: {
     population: 100,
     gold: 12,
-    /** Starting stock of the home biome's resource. */
-    homeResource: 4,
+    stone: 4,
   },
 
   map: {
-    radius: 5,
-    /** Voronoi seeds that become terrain regions. */
-    regions: 18,
-    camps: 10,
+    /** 4 = 9 tiles across. */
+    radius: 4,
+    /** Share of the land that is the biome's speciality terrains, and stray tiles of anything else. The rest is basic. */
+    mix: { special: 0.4, stray: 0.1 },
+    camps: 7,
     campMinDistance: 3,
   },
 
@@ -60,29 +60,36 @@ export const CONFIG = {
   quality: { min: 0.85, max: 1.15 },
 
   affinity: {
-    /** Total affinity points a unit carries, by rarity. */
-    pointsByRarity: { common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5 } satisfies Record<Rarity, number>,
-    /** Chance a unit with 2+ points splits them across two affinities. */
-    dualChance: 0.5,
+    /**
+     * Births. Citizens are born with no affinity unless your academies give them one (only ever one).
+     * Each muster citizen picks between "none" (weight `none`) and every dedicated academy
+     * (weight perLevel × its level). From the chosen academy (level L) it gets 1..L points:
+     * each extra point is `pointDecay` times as likely as the one before.
+     */
+    birth: { none: 6, perLevel: 4, pointDecay: 0.25 },
+    /** Every Academy after your first also costs this much arcane per academy you already have. */
+    extraAcademyArcane: 3,
     /** Troop points needed for synergy tiers 1–4. The top tiers demand a committed troop. */
     thresholds: [2, 5, 9, 15],
-    /** Synergy effect multiplier by affinity level 0–4 (academy level). */
+    /** Synergy effect multiplier by affinity level 0–4 (your best academy of that affinity). */
     levelMult: [0.6, 1, 1.35, 1.7, 2.1],
+    /** Highest academy level, and so the most points a unit can be born with. */
     maxLevel: 4,
-    /** A higher-tier affinity unlocks once every parent's academy reaches this level. */
+    /** A higher-tier affinity can be dedicated once every parent has an academy at this level. */
     unlockLevel: 2,
     /**
-     * Birth weight. Tier 1 = mutation + perTile × your tiles of its land + research.
-     * Higher tiers are only born once researched: perLevel × academy level + perAttune × attunement.
+     * Offering an academy to a tier-T affinity, to reach level L:
+     * essence × L × T of each tier-1 root's essence, plus gold × L × T.
      */
-    birthWeight: { mutation: 1, perTile: 2, perLevel: 4, perAttune: 1 },
-    /** Per academy level: carriers' quality rolls skew upward. */
+    research: { essence: 2, gold: 2 },
+    /** Per affinity level: its units' quality rolls skew upward. */
     qualityBiasPerLevel: 0.08,
-    /** Per academy level: carriers get this much extra HP and attack in combat. */
+    /** Per affinity level: its units get this much extra HP and attack in combat. */
     combatBonusPerLevel: 0.05,
-    /** Per point of attunement (academy adjacency): extra carrier HP and attack. */
-    combatBonusPerAttune: 0.03,
   },
+
+  /** Church: offer light for morale. */
+  faith: { lightPerOffering: 3, moralePerOffering: 10 },
 
   level: {
     max: 5,
@@ -90,11 +97,12 @@ export const CONFIG = {
     /** Gold to go from level L to L+1 = goldBase × (rarity rank 1–5) × goldGrowth^(L-1). */
     goldBase: 8,
     goldGrowth: 2.2,
-    /** Higher levels also need materials: perLevel × (target − fromLevel + 1) once the target reaches fromLevel. */
-    materials: [
-      { resource: 'iron', fromLevel: 3, perLevel: 3 },
-      { resource: 'crystal', fromLevel: 4, perLevel: 3 },
-    ],
+    /**
+     * Training also takes the essences of the unit's primary affinity's tier-1 roots:
+     * essencePerLevel × (target − essenceFrom + 1) of each, once the target reaches essenceFrom.
+     */
+    essenceFrom: 2,
+    essencePerLevel: 2,
     /** Veterans (units that survived battles) upgrade cheaper. */
     discountPerBattleSurvived: 0.15,
     maxDiscount: 0.6,
@@ -143,6 +151,8 @@ export const CONFIG = {
     /** Gold to claim a tile = base + perOwned × (owned − startTiles). */
     claimBase: 3,
     claimPerOwned: 1,
+    /** Earth can pay for claims instead: 1 earth per this much gold of the claim cost (rounded up). */
+    goldPerEarth: 3,
   },
 
   /** Fraction of a building's total cost refunded on demolition. */

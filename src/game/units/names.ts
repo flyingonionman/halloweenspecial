@@ -42,5 +42,7 @@ const TITLE: Record<UnitType, string[]> = {
 }
 
 export function unitName(type: UnitType, affinities: AffinityPoints, rng: Rng): string {
-  return `${rng.pick(TITLE[type])} ${rng.pick(FIRST)} ${rng.pick(EPITHET[primaryAffinity(affinities)])}`
+  const a = primaryAffinity(affinities)
+  // Plain citizens (no affinity) go by title and name alone.
+  return `${rng.pick(TITLE[type])} ${rng.pick(FIRST)}${a ? ` ${rng.pick(EPITHET[a])}` : ''}`
 }

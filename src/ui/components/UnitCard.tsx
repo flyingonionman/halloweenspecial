@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { AFFINITY_LABEL, TYPE_DEFS, affinityEntries, primaryAffinity, unitPower, unitStats, type AffinityPoints, type Unit } from '../../game'
-import { AFFINITY_COLOR, AFFINITY_GLYPH, RARITY_COLOR, TYPE_GLYPH } from '../theme'
+import { AFFINITY_COLOR, AFFINITY_GLYPH, RARITY_COLOR, TYPE_GLYPH, unitColor } from '../theme'
 
 interface Props {
   unit: Unit
@@ -15,7 +15,7 @@ export function UnitCard({ unit, footer, compact, dim }: Props) {
   return (
     <article
       className={`unit-card ${compact ? 'compact' : ''} ${dim ? 'dim' : ''}`}
-      style={{ '--rarity': RARITY_COLOR[unit.rarity], '--element': AFFINITY_COLOR[primaryAffinity(unit.affinities)] } as React.CSSProperties}
+      style={{ '--rarity': RARITY_COLOR[unit.rarity], '--element': unitColor(primaryAffinity(unit.affinities)) } as React.CSSProperties}
       title={`${type.label} (${type.damage} damage) · ${type.abilityLabel}: ${type.abilityText}`}
     >
       <div className="uc-head">

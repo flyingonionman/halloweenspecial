@@ -1,10 +1,22 @@
 /**
- * Terrain → resource → affinity. Your land decides which resources you can
- * produce and which affinities your citizens are born with.
+ * Terrain → resource → affinity.
+ *
+ * Resources are gold, food, stone and seven essences, one per tier-1 element.
+ * Each has a secondary role beside training units and feeding research:
+ *   stone  — every building is built from it
+ *   earth  — "Mud": claims land (an alternative to gold)
+ *   light  — offered at a Church for morale
+ *   water  — builds Fisheries, which turn lakes into food
+ *   fire, wind, dark, arcane — training and research only
+ *
+ * Every run's land is one *biome*: a basic terrain (plains, steppe or
+ * highlands) dotted with that biome's two speciality terrains, plus a few strays.
  */
-import type { Affinity } from '../affinities'
 
-export const RESOURCES = ['gold', 'food', 'timber', 'iron', 'stone', 'hide', 'ice', 'ember', 'crystal', 'skystone'] as const
+export const ELEMENTS = ['fire', 'water', 'earth', 'wind', 'light', 'dark', 'arcane'] as const
+export type ElementId = (typeof ELEMENTS)[number]
+
+export const RESOURCES = ['gold', 'food', 'stone', ...ELEMENTS] as const
 export type ResourceId = (typeof RESOURCES)[number]
 
 /** Resources you stockpile. Food is a per-turn flow that drives growth. */
@@ -17,49 +29,71 @@ export type Material = (typeof MATERIALS)[number]
 export type Stock = Record<StockResource, number>
 export type Cost = Partial<Record<StockResource, number>>
 
+export const isElement = (r: string): r is ElementId => (ELEMENTS as readonly string[]).includes(r)
+
 export const RESOURCE_LABEL: Record<ResourceId, string> = {
   gold: 'Gold',
   food: 'Food',
-  timber: 'Timber',
-  iron: 'Iron',
   stone: 'Stone',
-  hide: 'Hide',
-  ice: 'Ice',
-  ember: 'Ember',
-  crystal: 'Crystal',
-  skystone: 'Skystone',
+  // Physical things, not the elements themselves: the affinities keep the element names.
+  fire: 'Ember',
+  water: 'Hydrocorals',
+  earth: 'Mud',
+  wind: 'Gale Spirits',
+  light: 'Light',
+  dark: 'Dark',
+  arcane: 'Arcane',
 }
 
-export const TERRAINS = ['plains', 'lake', 'forest', 'hills', 'mountains', 'steppe', 'tundra', 'volcanic', 'leyfield', 'highlands'] as const
+export const TERRAINS = ['plains', 'steppe', 'highlands', 'lake', 'forest', 'hills', 'volcanic', 'mountains', 'tundra', 'leyfield'] as const
 export type TerrainId = (typeof TERRAINS)[number]
 
 export interface TerrainDef {
   id: TerrainId
   label: string
-  /** What an owned tile yields with no building on it. */
+  /** What an owned tile yields with no building on it, and what a Mine digs there. */
   resource: ResourceId
   rawYield: number
-  affinity: Affinity | null
+  /** The tier-1 affinity this land breeds and lets a neighbouring Academy research. */
+  affinity: ElementId | null
+  /** Basic terrains make up most of a biome; specialities are the interesting patches. */
+  basic: boolean
+  /** False: only buildings that name this terrain may stand on it (Fishery on lakes). */
   buildable: boolean
 }
 
+const def = (id: TerrainId, label: string, resource: ResourceId, extra: Partial<TerrainDef> = {}): TerrainDef => ({
+  id,
+  label,
+  resource,
+  rawYield: 1,
+  affinity: resource !== 'gold' && resource !== 'food' && resource !== 'stone' ? (resource as ElementId) : null,
+  basic: false,
+  buildable: true,
+  ...extra,
+})
+
 export const TERRAIN_DEFS: Record<TerrainId, TerrainDef> = {
-  plains: { id: 'plains', label: 'Plains', resource: 'food', rawYield: 1, affinity: null, buildable: true },
-  lake: { id: 'lake', label: 'Lake', resource: 'food', rawYield: 2, affinity: 'water', buildable: false },
-  forest: { id: 'forest', label: 'Forest', resource: 'timber', rawYield: 1, affinity: null, buildable: true },
-  hills: { id: 'hills', label: 'Hills', resource: 'iron', rawYield: 1, affinity: null, buildable: true },
-  mountains: { id: 'mountains', label: 'Mountains', resource: 'stone', rawYield: 1, affinity: 'earth', buildable: true },
-  steppe: { id: 'steppe', label: 'Steppe', resource: 'hide', rawYield: 1, affinity: null, buildable: true },
-  tundra: { id: 'tundra', label: 'Tundra', resource: 'ice', rawYield: 1, affinity: null, buildable: true },
-  volcanic: { id: 'volcanic', label: 'Volcanic', resource: 'ember', rawYield: 1, affinity: 'fire', buildable: true },
-  leyfield: { id: 'leyfield', label: 'Leyfield', resource: 'crystal', rawYield: 1, affinity: 'arcane', buildable: true },
-  highlands: { id: 'highlands', label: 'Highlands', resource: 'skystone', rawYield: 1, affinity: 'wind', buildable: true },
+  plains: def('plains', 'Plains', 'food', { basic: true }),
+  steppe: def('steppe', 'Steppe', 'earth', { basic: true }),
+  highlands: def('highlands', 'Highlands', 'wind', { basic: true }),
+  lake: def('lake', 'Lake', 'water', { buildable: false }),
+  forest: def('forest', 'Forest', 'earth'),
+  hills: def('hills', 'Hills', 'stone', { rawYield: 2 }),
+  volcanic: def('volcanic', 'Volcanic', 'fire'),
+  mountains: def('mountains', 'Mountains', 'stone', { rawYield: 2 }),
+  tundra: def('tundra', 'Tundra', 'water'),
+  leyfield: def('leyfield', 'Leyfield', 'arcane'),
 }
 
-/** Terrains whose land breeds a tier-1 affinity. */
-export const AFFINITY_TERRAINS = TERRAINS.filter((t) => TERRAIN_DEFS[t].affinity !== null)
+export const BIOMES = ['plains', 'steppe', 'highlands'] as const satisfies readonly TerrainId[]
+export type Biome = (typeof BIOMES)[number]
 
-/** Starting regions lean toward any land worth settling (not plains or lakes). */
-export const HOME_TERRAINS = TERRAINS.filter((t) => t !== 'plains' && t !== 'lake')
+/** Each biome's two speciality terrains. Leyfields only ever appear as strays. */
+export const BIOME_SPECIALS: Record<Biome, readonly [TerrainId, TerrainId]> = {
+  plains: ['lake', 'forest'],
+  steppe: ['volcanic', 'hills'],
+  highlands: ['mountains', 'tundra'],
+}
 
 export const emptyStock = (): Stock => Object.fromEntries(STOCK_RESOURCES.map((r) => [r, 0])) as Stock

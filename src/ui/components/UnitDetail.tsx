@@ -214,16 +214,16 @@ export function UnitDetail({
               </li>
             )}
             {affinityEntries(unit.affinities).map(([a]) =>
-              c.affinityLevels[a] || c.attune[a] ? (
+              c.affinityLevels[a] ? (
                 <li key={a} data-help="affinity-level">
-                  <span style={{ color: AFFINITY_COLOR[a] }}>{AFFINITY_GLYPH[a]}</span> {AFFINITY_LABEL[a]} academy Lv{c.affinityLevels[a]}, attunement {c.attune[a]}: +
-                  {pct(c.affinityLevels[a] * CONFIG.affinity.combatBonusPerLevel + c.attune[a] * CONFIG.affinity.combatBonusPerAttune)} HP & ATK
+                  <span style={{ color: AFFINITY_COLOR[a] }}>{AFFINITY_GLYPH[a]}</span> {AFFINITY_LABEL[a]} researched to Lv{c.affinityLevels[a]}: +
+                  {pct(c.affinityLevels[a] * CONFIG.affinity.combatBonusPerLevel)} HP & ATK
                 </li>
               ) : null,
             )}
             {carried.map((syn) => (
               <li key={syn.def.id} data-help={`synergy:${syn.def.id}`}>
-                {syn.def.name} tier {syn.tier} × academy Lv{syn.level} (×{CONFIG.affinity.levelMult[syn.level]}):{' '}
+                {syn.def.name} tier {syn.tier} × research Lv{syn.level} (×{CONFIG.affinity.levelMult[syn.level]}):{' '}
                 {(Object.entries(syn.effects) as [keyof typeof EFFECT_TEXT, number][]).map(([k, v]) => EFFECT_TEXT[k](v)).join(', ')}
               </li>
             ))}

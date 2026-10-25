@@ -5,7 +5,9 @@ import { TurnScreen } from './screens/TurnScreen'
 import { BattleScreen } from './screens/BattleScreen'
 import { OverScreen } from './screens/OverScreen'
 import { HelpLayer } from './help/HelpLayer'
+import { Toaster } from './toast'
 import { Lexicon } from './lexicon/Lexicon'
+import { Credits } from './Credits'
 import { useEffect, useRef, useState } from 'react'
 import { RARITY_COLOR, RESOURCE_COLOR, RESOURCE_GLYPH, SPECIES_GLYPH, fmtPop } from './theme'
 
@@ -21,6 +23,7 @@ export function App() {
         {s.phase === 'over' && <OverScreen />}
       </main>
       <HelpLayer />
+      <Toaster />
     </div>
   )
 }
@@ -126,6 +129,7 @@ function TopBar() {
 function SettingsMenu({ canReset, onReset }: { canReset: boolean; onReset: () => void }) {
   const [open, setOpen] = useState(false)
   const [lexicon, setLexicon] = useState(false)
+  const [credits, setCredits] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -151,6 +155,16 @@ function SettingsMenu({ canReset, onReset }: { canReset: boolean; onReset: () =>
             <span>📖</span> Lexicon
             <small>Every affinity, building and unit</small>
           </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setCredits(true)
+              setOpen(false)
+            }}
+          >
+            <span>✦</span> Credits
+            <small>Models, textures and fonts</small>
+          </button>
           {canReset && (
             <button
               role="menuitem"
@@ -166,6 +180,7 @@ function SettingsMenu({ canReset, onReset }: { canReset: boolean; onReset: () =>
         </div>
       )}
       {lexicon && <Lexicon onClose={() => setLexicon(false)} />}
+      {credits && <Credits onClose={() => setCredits(false)} />}
     </div>
   )
 }

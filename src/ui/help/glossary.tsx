@@ -28,6 +28,13 @@ import {
   city,
   civTier,
   claimCost,
+  claimEarthCost,
+  landOf,
+  rootsOf,
+  buildingName,
+  baseOutput,
+  BIOMES,
+  BIOME_SPECIALS,
   ownedTiles,
   territoryCap,
   type Affinity,
@@ -136,8 +143,8 @@ const STATIC: Record<string, Resolver> = {
   }),
   stores: () => ({
     title: 'Stores',
-    body: 'Resources you’ve stockpiled, with what your land adds each turn. Materials come from tiles: raw tiles yield 1, extractors yield more. Buildings and trades spend them.',
-    see: ['tile-output', 'trade', 'resource:timber'],
+    body: 'Resources you’ve stockpiled, with what your land adds each turn. Stone and the seven essences come from tiles: raw tiles yield a little, Mines yield more. Every building costs stone; essences train units and are offered to academies, and each has a second use.',
+    see: ['tile-output', 'trade', 'resource:stone', 'resource:earth'],
   }),
   food: (s) => ({
     title: 'Food',
@@ -159,8 +166,8 @@ const STATIC: Record<string, Resolver> = {
     const t = CONFIG.territory
     return {
       title: 'Land',
-      body: `Tiles you own / tiles your people can hold. The cap grows with population: ${t.capBase} + ${t.capPerDoubling} per doubling past ${CONFIG.start.population}. Claiming costs ${t.claimBase} gold + ${t.claimPerOwned} per tile beyond your first ${t.startTiles}. Razing a camp claims its tile for free.`,
-      live: `${ownedTiles(s.map).length} of ${territoryCap(s)}; next claim costs ${claimCost(s)} gold.`,
+      body: `Tiles you own / tiles your people can hold. The cap grows with population: ${t.capBase} + ${t.capPerDoubling} per doubling past ${CONFIG.start.population}. Claiming costs ${t.claimBase} gold + ${t.claimPerOwned} per tile beyond your first ${t.startTiles}, or 1 mud per ${t.goldPerEarth} of that gold. Razing a camp claims its tile for free.`,
+      live: `${ownedTiles(s.map).length} of ${territoryCap(s)}; next claim costs ${claimCost(s)} gold or ${claimEarthCost(s)} mud.`,
       see: ['claim', 'camp'],
     }
   },
@@ -177,36 +184,54 @@ const STATIC: Record<string, Resolver> = {
     title: 'Birth odds',
     body: (
       <>
-        The bar is the rarity mix of new citizens. Below it, the chance a citizen carries each affinity: a mutation floor of {A.birthWeight.mutation}, +{A.birthWeight.perTile} per tile of that
-        affinity’s terrain, +{A.birthWeight.perLevel} per academy level, +{A.birthWeight.perAttune} per attunement. Claim land and build academies to steer who is born.
+        Two separate rolls make each citizen. <b>Rarity</b> comes from population alone and sets how strong the unit is. <b>Affinity</b> comes from academies alone: a
+        citizen is born plain (weight {A.birth.none}) unless an academy gives it one (weight {A.birth.perLevel} × the academy’s level), and only ever one. The academy’s
+        level is the most points it can carry; each extra point is {pct(A.birth.pointDecay)} as likely as the one before.
       </>
     ),
-    see: ['tier', 'mutation', 'attune'],
+    see: ['tier', 'affinity-vs-resource', 'kind:research'],
   }),
-  mutation: () => ({
-    title: 'Mutations',
-    body: 'Every affinity keeps a small chance to appear even if you own none of its land. A mutation can be a gift, like a frost mage on a volcanic start, but supporting it means trading or expanding for its resource.',
-    see: ['birth-odds', 'trade'],
+  'affinity-vs-resource': () => ({
+    title: 'Affinity is not a resource',
+    body: 'Your land gives you resources; only academies give your people affinities. A volcanic field yields ember, but nobody is born with Fire until you dedicate an academy to it. The ember is what you pay with: spend it on academies, on training, or on its own side role. A land rich in ember often ends up with a Fire troop, but it doesn’t have to.',
+    see: ['birth-odds', 'kind:research', 'stores'],
   }),
   trade: (s) => ({
     title: 'Trade',
-    body: `Needs a Trading Post. Swap any material for another at a fixed rate: ${CONFIG.trade.worst}:1 by default, improved by a lake or market beside the post, down to ${CONFIG.trade.best}:1.`,
+    body: `Open your Trading Post’s tile to trade. Swap any material for another at a fixed rate: ${CONFIG.trade.worst}:1 by default, improved by a lake or market beside the post, down to ${CONFIG.trade.best}:1.`,
     live: city(s).tradeRate !== null ? `Your rate: ${city(s).tradeRate}:1.` : 'You have no Trading Post.',
     see: ['building:trading-post'],
   }),
   chronicle: () => ({ title: 'Chronicle', body: 'A running log of what happened in your civilization.' }),
   buildbar: () => ({
     title: 'Build bar',
-    body: 'Pick a building to place it. Every tile where it can go shows what it would produce there, and the best spot glows gold. Click a tile to build. Esc cancels. Struck-through costs are ones you can’t afford yet.',
-    see: ['adjacency', 'kind:civic', 'kind:extractor', 'kind:military', 'kind:research'],
+    body: 'Pick a building to place it. Every tile where it can go shows what it would produce there. Click a tile to build. Esc cancels. If you’re missing anything, the button shakes and a note says what.',
+    see: ['adjacency', 'kind:gather', 'kind:civic', 'kind:faith', 'kind:military', 'kind:research'],
   }),
-  'kind:civic': () => ({ title: 'Civic buildings', kind: 'Building group', body: 'Food, gold and trade. The economy that everything else runs on.', see: ['building:farm', 'building:market', 'building:trading-post'] }),
-  'kind:extractor': () => ({ title: 'Extractors', kind: 'Building group', body: 'Each one works a single terrain for its resource: 2 base, +1 per neighbouring tile of the same terrain (up to 3). Clusters of one terrain make the best mines.', see: ['adjacency', 'stores'] }),
+  'kind:civic': () => ({ title: 'Civic buildings', kind: 'Building group', body: 'Food, gold and trade. The economy that everything else runs on. The Fishery is the only building that stands on a lake.', see: ['building:farm', 'building:fishery', 'building:market', 'building:trading-post'] }),
+  'kind:gather': () => ({ title: 'Gathering', kind: 'Building group', body: 'One building line for every resource. A Mine digs whatever its tile holds (stone on hills and mountains, mud on steppe and forest, and so on): raw yield + its level, +1 per neighbouring tile of the same terrain (up to 3). Upgrade it into a Quarry, then an Excavator.', see: ['building:mine', 'adjacency', 'stores'] }),
+  'kind:faith': () => ({ title: 'Faith', kind: 'Building group', body: 'The Church makes light and the Crypt makes dark: the two essences no land gives, and what Light and Dark academies are offered. Open a Church to offer light for morale.', see: ['building:church', 'building:crypt', 'kind:research'] }),
   'kind:military': () => ({ title: 'Military buildings', kind: 'Building group', body: 'Permanent bonuses for every unit, whatever their affinities. This is the tempo line: strong without committing to synergies.', see: ['building:barracks', 'building:walls', 'building:armory', 'troop-bonus'] }),
-  'kind:research': () => ({ title: 'Academies', kind: 'Building group', body: `One per affinity, levels 1–${A.maxLevel}, built with that affinity’s resource. An academy’s level is the affinity’s level: more citizens with it, stronger units of that affinity, and a bigger synergy multiplier.`, see: ['affinity-level', 'attune', 'synergies'] }),
+  'kind:research': (s) => ({
+    title: 'Academies',
+    kind: 'Building group',
+    body: `The only source of affinities. Build one anywhere (every academy after your first also costs ${A.extraAcademyArcane} arcane per academy you own: arcane’s main use). It goes up empty: open its tile and offer an affinity’s essences to dedicate it (Water Academy), then offer more to raise it to Lv${A.maxLevel}. Offerings cost the affinity’s tier-1 roots (Magma = fire + earth). Tier-2+ affinities open once each parent has an academy at Lv${A.unlockLevel}. More academies of an affinity, and higher levels, mean more citizens born with it and with more points.`,
+    live: city(s).academies.length
+      ? `Yours: ${city(s).academies.map((a) => `${AFFINITY_LABEL[a.affinity]} Lv${a.level}`).join(', ')}.`
+      : city(s).academyCount
+        ? 'Your academies are still empty.'
+        : 'You have no academy.',
+    see: ['birth-odds', 'affinity-vs-resource', 'affinity-level', 'synergies'],
+  }),
+  biome: (s) => ({
+    title: 'Biome',
+    body: `Every run’s land is one biome: mostly one basic terrain, patched with two speciality terrains and a few strays. ${BIOMES.map((b) => `${TERRAIN_DEFS[b].label}: ${BIOME_SPECIALS[b].map((t) => TERRAIN_DEFS[t].label.toLowerCase()).join(' and ')}`).join('; ')}.`,
+    live: `You settled ${TERRAIN_DEFS[s.map.homeBiome].label.toLowerCase()}.`,
+    see: ['land', 'kind:research'],
+  }),
   adjacency: () => ({
     title: 'Adjacency',
-    body: 'Most buildings produce more with the right neighbours: extractors next to their terrain, barracks next to mines, walls next to quarries, farms next to lakes, academies next to their terrain. Where you build matters as much as what you build.',
+    body: 'Most buildings produce more with the right neighbours: mines among their own terrain, barracks next to mines, walls by hills and mountains, farms and fisheries next to lakes. Where you build matters as much as what you build.',
     see: ['buildbar', 'tile-output'],
   }),
   'tile-output': () => ({
@@ -216,8 +241,8 @@ const STATIC: Record<string, Resolver> = {
   }),
   claim: (s) => ({
     title: 'Claiming land',
-    body: 'Take an unowned tile on your border. New land adds its raw yield, shifts your birth odds toward its affinity, and gives you room to build.',
-    live: `Next claim: ${claimCost(s)} gold (${ownedTiles(s.map).length}/${territoryCap(s)} tiles).`,
+    body: 'Take an unowned tile on your border, paying gold or mud. New land adds its raw yield, shifts your birth odds toward its affinity, and gives you room to build.',
+    live: `Next claim: ${claimCost(s)} gold or ${claimEarthCost(s)} mud (${ownedTiles(s.map).length}/${territoryCap(s)} tiles).`,
     see: ['land', 'birth-odds'],
   }),
   demolish: () => ({ title: 'Demolish', body: `Tear a building down for ${pct(CONFIG.demolishRefund)} of everything you spent on it. Use it to pivot when your plans change.` }),
@@ -237,7 +262,7 @@ const STATIC: Record<string, Resolver> = {
     body: `Morale to recruit. Base price by rarity (${RARITIES.map((r) => `${r} ${CONFIG.recruitMorale[r]}`).join(', ')}), adjusted by the unit’s quality roll. Spending morale lowers your fields’ output until it recovers.`,
     see: ['morale', 'quality'],
   }),
-  quality: () => ({ title: 'Quality', body: `Each unit rolls ${CONFIG.quality.min}–${CONFIG.quality.max}× stats. Academy levels for a unit’s affinities bias the roll upward.` }),
+  quality: () => ({ title: 'Quality', body: `Each unit rolls ${CONFIG.quality.min}–${CONFIG.quality.max}× stats. The level of the academy a citizen’s affinity came from biases the roll upward.` }),
   troop: (s) => ({
     title: 'Troop',
     body: 'The units that fight in raids and round battles. Their affinities add up to synergies. Units that die in battle are gone for good.',
@@ -251,7 +276,7 @@ const STATIC: Record<string, Resolver> = {
     body: (
       <>
         Two separate numbers decide a synergy. Its <b>tier</b> (1–4) comes from your <b>troop</b>: affinity points across deployed units, unlocking at {A.thresholds.join(' / ')}. Its{' '}
-        <b>multiplier</b> comes from your <b>city</b>: the affinity’s academy level ({A.levelMult.map((m, i) => `Lv${i} ×${m}`).join(', ')}). Effect = the tier’s value × the multiplier.
+        <b>multiplier</b> comes from your <b>city</b>: your best academy of that affinity ({A.levelMult.map((m, i) => `Lv${i} ×${m}`).join(', ')}). Effect = the tier’s value × the multiplier.
         Effects go to units that have the affinity, or to the whole troop for whole-troop affinities.
       </>
     ),
@@ -260,23 +285,18 @@ const STATIC: Record<string, Resolver> = {
   'synergy-tier': () => ({ title: 'Synergy tier', body: `Lit diamonds = active tier, from your troop: tiers unlock at ${A.thresholds.join(' / ')} points of the affinity among deployed units. Separate from the affinity level, which comes from academies.`, see: ['synergies', 'affinity-level'] }),
   'affinity-level': () => ({
     title: 'Affinity level',
-    body: `From your city, not your troop: an affinity’s level is its academy’s level (0–${A.maxLevel}). It multiplies that affinity’s synergy (${A.levelMult.map((m, i) => `Lv${i} ×${m}`).join(', ')}), gives units with the affinity +${pct(A.combatBonusPerLevel)} HP and attack per level, and makes it more common in births.`,
-    see: ['kind:research', 'attune'],
-  }),
-  attune: () => ({
-    title: 'Attunement',
-    body: `Each tile of an academy’s terrain beside it adds 1 attunement (max 3): +${pct(A.combatBonusPerAttune)} HP and attack for units with that affinity, and more births of that affinity.`,
-    see: ['kind:research', 'adjacency'],
+    body: `From your city, not your troop: an affinity’s level is the level of your best academy dedicated to it (0–${A.maxLevel}). It multiplies that affinity’s synergy (${A.levelMult.map((m, i) => `Lv${i} ×${m}`).join(', ')}) and gives units with the affinity +${pct(A.combatBonusPerLevel)} HP and attack per level.`,
+    see: ['kind:research'],
   }),
   level: () => ({
     title: 'Unit level',
-    body: `Levels 1–${CONFIG.level.max}; each adds +${pct(CONFIG.level.statPerLevel)} to base stats. Levelling is a big investment: gold grows ×${CONFIG.level.goldGrowth} per level and with rarity, and higher levels also need ${CONFIG.level.materials.map((m) => `${RESOURCE_LABEL[m.resource].toLowerCase()} (from Lv${m.fromLevel})`).join(' and ')}. Double-click the level button to confirm. Veterans pay less.`,
+    body: `Levels 1–${CONFIG.level.max}; each adds +${pct(CONFIG.level.statPerLevel)} to base stats. Levelling is a big investment: gold grows ×${CONFIG.level.goldGrowth} per level and with rarity, and from Lv${CONFIG.level.essenceFrom} training also takes the essences of the unit’s affinity roots (a Magma unit needs ember and mud). Double-click the level button to confirm. Veterans pay less.`,
     see: ['veteran'],
   }),
   veteran: () => ({ title: 'Veteran', body: `Stars show battles survived. Each one cuts upgrade costs by ${pct(CONFIG.level.discountPerBattleSurvived)}, up to ${pct(CONFIG.level.maxDiscount)}.` }),
   release: () => ({ title: 'Release', body: `Let a unit go and get back ${pct(CONFIG.releaseRefund)} of the morale it cost to recruit.`, see: ['morale'] }),
-  'stat:hp': () => ({ title: 'HP', kind: 'Stat', body: 'Health. Boosted by rarity, quality, level, Walls, academies, and Earth synergies.' }),
-  'stat:atk': () => ({ title: 'Attack', kind: 'Stat', body: 'Damage per hit, and the base for abilities. Boosted by rarity, quality, level, Barracks, academies, and Sword synergies.' }),
+  'stat:hp': () => ({ title: 'HP', kind: 'Stat', body: 'Health. Boosted by rarity, quality, level, Walls, academies, and Water and Light synergies.' }),
+  'stat:atk': () => ({ title: 'Attack', kind: 'Stat', body: 'Damage per hit, and the base for abilities. Boosted by rarity, quality, level, Barracks, academies, and Fire and Weaponry synergies.' }),
   'stat:def': () => ({ title: 'Defense', kind: 'Stat', body: `Reduces damage taken: damage × 100/(100+DEF). Magic damage counts only ${pct(CONFIG.combat.magicDefFactor)} of defense.` }),
   'stat:rng': () => ({ title: 'Range', kind: 'Stat', body: 'How far the unit can attack from. Melee is about 1.2. Placement only matters through range and cohesion synergies.' }),
   'stat:pwr': () => ({ title: 'Power', kind: 'Stat', body: 'A rough single-number strength: √(damage per second × effective HP). Handy for comparing, but it ignores synergies and abilities.' }),
@@ -303,22 +323,27 @@ function building(id: BuildingId): Resolver {
   return (s) => {
     const def = BUILDING_DEFS[id]
     const adj = def.adjacency.map((r) => {
-      const who = 'terrain' in r.per ? TERRAIN_DEFS[r.per.terrain].label : 'building' in r.per ? BUILDING_DEFS[r.per.building].name : 'same terrain'
-      return `${fmtOutputs(r.add)} per adjacent ${who.toLowerCase()}${r.cap ? ` (max ${r.cap})` : ''}`
+      const who =
+        'terrain' in r.per
+          ? (typeof r.per.terrain === 'string' ? [r.per.terrain] : r.per.terrain).map((t) => TERRAIN_DEFS[t].label).join('/')
+          : 'building' in r.per
+            ? BUILDING_DEFS[r.per.building].name
+            : 'tile of the same terrain'
+      return `${r.add === 'tile' ? '+1 of the tile’s resource' : fmtOutputs(r.add)} per adjacent ${who.toLowerCase()}${r.cap ? ` (max ${r.cap})` : ''}`
     })
     const count = s.map.tiles.filter((t) => t.building?.id === id).length
     return {
-      title: def.name,
-      kind: { capital: 'Capital', extractor: 'Extractor', civic: 'Civic building', military: 'Military building', research: 'Academy' }[def.kind],
+      title: buildingName(id),
+      kind: { capital: 'Capital', gather: 'Gathering', civic: 'Civic building', faith: 'Faith', military: 'Military building', research: 'Research' }[def.kind],
       body: (
         <>
           {def.text}
-          {Object.keys(def.base).length > 0 && <p className="help-line">Base: {fmtOutputs(def.base)}</p>}
+          {typeof def.base !== 'function' && Object.keys(def.base).length > 0 && <p className="help-line">Base: {fmtOutputs(baseOutput(def, 'plains'))}</p>}
           {adj.length > 0 && <p className="help-line">Adjacency: {adj.join('; ')}.</p>}
           <p className="help-line">
             Placed on: {def.allowed === 'any' ? 'any land' : def.allowed.map((t) => TERRAIN_DEFS[t].label).join(', ')}
             {def.unique ? '. Only one allowed' : ''}
-            {def.maxLevel > 1 ? `. Levels 1–${def.maxLevel}` : ''}.
+            {def.levelNames ? `. Grows: ${def.levelNames.join(' → ')}` : def.maxLevel > 1 ? `. Levels 1–${def.maxLevel}` : ''}.
           </p>
         </>
       ),
@@ -341,16 +366,16 @@ function affinity(a: Affinity): Resolver {
         <>
           {d.flavour}{' '}
           {d.tier === 1
-            ? d.land
-              ? `Born from ${d.land.map((t) => TERRAIN_DEFS[t].label.toLowerCase()).join(' and ')} land and its ${d.academy}.`
-              : `Born once you build a ${d.academy}.`
-            : `Unlocked when ${d.parents.map((p) => AFFINITY_LABEL[p]).join(' and ')} reach academy Lv${CONFIG.affinity.unlockLevel}; then citizens are born with it once you build its ${d.academy}.`}
+            ? landOf(a).length
+              ? `Dedicate an academy with ${RESOURCE_LABEL[a as keyof typeof RESOURCE_LABEL].toLowerCase()} (mined from ${landOf(a).map((t) => TERRAIN_DEFS[t].label.toLowerCase()).join(' and ')}) to have citizens born with it.`
+              : `Dedicate an academy with ${a} essence (from a ${a === 'light' ? 'Church' : 'Crypt'}) to have citizens born with it.`
+            : `Opens once ${d.parents.map((p) => AFFINITY_LABEL[p]).join(' and ')} each have an academy at Lv${CONFIG.affinity.unlockLevel}; then an academy can be dedicated to it with ${rootsOf(a).map((r) => RESOURCE_LABEL[r].toLowerCase()).join(', ')}.`}
           {kids.length > 0 && <p className="help-line">Leads to: {kids.map((k) => AFFINITY_LABEL[k]).join(', ')}.</p>}
           {d.team && <p className="help-line">Its synergy empowers your whole troop.</p>}
         </>
       ),
-      live: open ? `Academy Lv${c.affinityLevels[a]} · attunement ${c.attune[a]}.` : 'Locked.',
-      see: [`synergy:${a}`, `building:${a}-academy`, ...d.parents.map((p) => `affinity:${p}`), ...kids.map((k) => `affinity:${k}`)],
+      live: open ? (c.affinityLevels[a] ? `Your best ${AFFINITY_LABEL[a]} academy: Lv${c.affinityLevels[a]}.` : 'No academy yet.') : 'Locked.',
+      see: [`synergy:${a}`, 'kind:research', ...d.parents.map((p) => `affinity:${p}`), ...kids.map((k) => `affinity:${k}`)],
     }
   }
 }
@@ -390,12 +415,26 @@ function terrain(t: TerrainId): Resolver {
         <>
           Owned, it yields {def.rawYield} {RESOURCE_LABEL[def.resource].toLowerCase()} per turn with nothing built on it.
           {def.affinity && <> Every tile you own raises the odds of {AFFINITY_LABEL[def.affinity]} citizens.</>}
-          {!def.buildable && <> Nothing can be built on it, but farms and trading posts beside it benefit.</>}
+          {def.basic ? <> A basic terrain: one of these makes up most of a biome.</> : <> A speciality terrain.</>}
+          {!def.buildable && <> Only a Fishery can stand on it; farms and trading posts beside it benefit.</>}
         </>
       ),
       see: [`resource:${def.resource}`, ...(def.affinity ? [`affinity:${def.affinity}`] : [])],
     }
   }
+}
+
+/** Each resource's job beyond training and academy offerings. */
+const ROLE: Partial<Record<ResourceId, string>> = {
+  gold: 'Claims land, levels units, and pays for every building.',
+  stone: 'Every building is built from stone.',
+  earth: `Pays for land: claim a tile for 1 mud per ${CONFIG.territory.goldPerEarth} gold of its cost.`,
+  light: `Offer ${CONFIG.faith.lightPerOffering} at a Church for +${CONFIG.faith.moralePerOffering} morale.`,
+  water: 'Builds Fisheries, which turn lakes into food.',
+  fire: 'Trains units and is offered to academies. Barracks need it.',
+  wind: 'Trains units and is offered to academies.',
+  dark: 'Trains units and is offered to academies. Only a Crypt makes it.',
+  arcane: `Its main use: every academy after your first costs ${CONFIG.affinity.extraAcademyArcane} arcane per academy you own. Leyfields are rare.`,
 }
 
 function resource(r: ResourceId): Resolver {
@@ -408,7 +447,8 @@ function resource(r: ResourceId): Resolver {
       body: (
         <>
           {sources.length > 0 && <>From {sources.map((t) => t.label.toLowerCase()).join(' and ')} tiles. </>}
-          {users.length > 0 && <>Used for: {users.map((b) => b.name).join(', ')}.</>}
+          {ROLE[r] && <p className="help-line">{ROLE[r]}</p>}
+          {users.length > 0 && <p className="help-line">Builds: {users.map((b) => b.name).join(', ')}.</p>}
         </>
       ),
       live: r === "food" ? `${effectiveYields(s).food} per turn.` : `${s.stock[r]} stored, +${effectiveYields(s)[r]} per turn.`,
@@ -444,7 +484,7 @@ function rarity(r: Rarity): Resolver {
   return (s) => ({
     title: r[0]!.toUpperCase() + r.slice(1),
     kind: 'Rarity',
-    body: `×${CONFIG.rarityStatMult[r]} stats, ${CONFIG.affinity.pointsByRarity[r]} affinity point${CONFIG.affinity.pointsByRarity[r] === 1 ? '' : 's'}, base price ${CONFIG.rarityPrice[r]} gold. ${r === 'common' ? 'Always available.' : `Unlocks at ${fmtPop(CONFIG.rarityThresholds[r])} population.`} Older rarities fall behind as the game goes on: the generation gap.`,
+    body: `×${CONFIG.rarityStatMult[r]} stats (rarity only sets strength; affinities come from academies), base price ${CONFIG.rarityPrice[r]} gold. ${r === 'common' ? 'Always available.' : `Unlocks at ${fmtPop(CONFIG.rarityThresholds[r])} population.`} Older rarities fall behind as the game goes on: the generation gap.`,
     live: `Your tier: ${civTier(s.population)}.`,
     see: ['tier'],
   })

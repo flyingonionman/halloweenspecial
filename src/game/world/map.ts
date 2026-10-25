@@ -1,11 +1,17 @@
 /**
- * The board: a hex map of terrain regions around your capital, with NPC camps
- * scattered toward the edges.
+ * The board: one biome around your capital, with NPC camps toward the edges.
+ *
+ * A biome is mostly a single contiguous basic terrain (~50%), patched with its
+ * two speciality terrains in clusters (~40%) and a few strays of anything else
+ * (~10%). Nothing non-basic ever stands alone: specialities come in clusters of
+ * 3–5, strays in pairs. The capital's ring is basic land with one speciality
+ * tile, the tip of a cluster reaching in from outside.
  */
+import type { Affinity } from '../affinities'
 import { CONFIG } from '../config'
 import type { Rng } from '../rng'
 import { hexDistance, hexKey, hexesInRadius, neighbors, type Hex } from './hex'
-import { AFFINITY_TERRAINS, TERRAINS, type TerrainId } from './terrain'
+import { BIOME_SPECIALS, BIOMES, TERRAINS, type Biome, type TerrainId } from './terrain'
 import type { BuildingId } from './buildings'
 
 export interface Camp {
@@ -16,7 +22,10 @@ export interface Camp {
 
 export interface PlacedBuilding {
   id: BuildingId
+  /** Academies: 0 until dedicated, then the affinity's level there. */
   level: number
+  /** Academies: the affinity it was dedicated to with an offering. */
+  affinity?: Affinity
 }
 
 export interface Tile extends Hex {
@@ -28,49 +37,66 @@ export interface Tile extends Hex {
 
 export interface WorldMap {
   radius: number
-  /** The terrain your starting region leans toward. */
-  homeBiome: TerrainId
+  /** The basic terrain this run's land is made of. */
+  homeBiome: Biome
   tiles: Tile[]
 }
 
 const CAMP_NAMES = ['Bandit Hollow', 'Wight Barrow', 'Gnoll Warren', 'Witch Copse', 'Raider Camp', 'Grave Mound', 'Ogre Den', 'Cultist Ring']
 
-export function generateMap(rng: Rng, radius: number = CONFIG.map.radius): WorldMap {
-  const all = hexesInRadius(radius)
-  const homeBiome = rng.pick(AFFINITY_TERRAINS.filter((t) => t !== 'lake'))
+export function generateMap(rng: Rng, radius: number = CONFIG.map.radius, biome?: Biome): WorldMap {
+  const homeBiome = biome ?? rng.pick(BIOMES)
+  const [s1, s2] = BIOME_SPECIALS[homeBiome]
+  const tiles: Tile[] = hexesInRadius(radius).map((hex) => ({ ...hex, terrain: homeBiome, owned: false, building: null, camp: null }))
+  const byKey = new Map(tiles.map((t) => [hexKey(t), t]))
+  const at = (h: Hex) => byKey.get(hexKey(h))
+  const origin = { q: 0, r: 0 }
+  const outer = () => tiles.filter((t) => hexDistance(t, origin) >= 2 && t.terrain === homeBiome)
 
-  // Region seeds: the centre ring leans hard toward the home biome; elsewhere is a mix.
-  const seeds: { hex: Hex; terrain: TerrainId }[] = [{ hex: { q: 1, r: 0 }, terrain: homeBiome }]
-  for (let i = 1; i < CONFIG.map.regions; i++) {
-    const hex = rng.pick(all)
-    const near = hexDistance(hex, { q: 0, r: 0 }) <= 2
-    const terrain = rng.weighted(TERRAINS, (t) => (t === homeBiome ? (near ? 6 : 1.5) : t === 'plains' ? 2.2 : t === 'lake' ? 0.8 : 1))
-    seeds.push({ hex, terrain })
+  const { special, stray } = CONFIG.map.mix
+  const specialTarget = Math.round(tiles.length * special)
+  const strayTarget = Math.round(tiles.length * stray)
+
+  /** Grow a cluster of `terrain` from `seed` through basic land outside the ring. */
+  const grow = (seed: Tile, terrain: TerrainId, size: number) => {
+    const blob = [seed]
+    while (blob.length < size) {
+      const edge = blob
+        .flatMap((t) => neighbors(t).map(at))
+        .filter((t): t is Tile => !!t && t.terrain === homeBiome && hexDistance(t, origin) >= 2 && !blob.includes(t))
+      if (!edge.length) break
+      blob.push(edge[Math.floor(rng.next() * edge.length)]!)
+    }
+    // Hemmed in with no room to grow: leave it basic rather than a lone odd tile.
+    if (blob.length < 2) return 0
+    for (const t of blob) t.terrain = terrain
+    return blob.length
   }
 
-  const tiles: Tile[] = all.map((hex) => {
-    let best = seeds[0]!
-    let bestD = Infinity
-    for (const s of seeds) {
-      const d = hexDistance(hex, s.hex) + rng.next() * 0.9
-      if (d < bestD) [best, bestD] = [s, d]
-    }
-    return { ...hex, terrain: best.terrain, owned: false, building: null, camp: null }
-  })
+  // The ring's one speciality tile, grown outward so it's the tip of a cluster.
+  const ring = neighbors(origin).map((n) => at(n)!)
+  let specials = grow(ring[Math.floor(rng.next() * ring.length)]!, s1, 3)
 
-  const at = (h: Hex) => tiles.find((t) => t.q === h.q && t.r === h.r)
-  const capital = at({ q: 0, r: 0 })!
-  capital.terrain = 'plains'
+  // Speciality clusters of 3–5, alternating the two.
+  for (let i = 0; specials < specialTarget && i < 60; i++) {
+    const pool = outer()
+    if (!pool.length) break
+    const size = Math.min(3 + Math.floor(rng.next() * 3), Math.max(2, specialTarget - specials))
+    specials += grow(pool[Math.floor(rng.next() * pool.length)]!, i % 2 === 0 ? s2 : s1, size)
+  }
+
+  // Strays: pairs of anything else, leyfields included.
+  const others = TERRAINS.filter((t) => t !== homeBiome)
+  for (let strays = 0, i = 0; strays < strayTarget && i < 30; i++) {
+    const pool = outer()
+    if (!pool.length) break
+    strays += grow(pool[Math.floor(rng.next() * pool.length)]!, rng.pick(others), 2)
+  }
+
+  const capital = at(origin)!
   capital.owned = true
   capital.building = { id: 'capital', level: 1 }
-  for (const n of neighbors(capital)) {
-    const t = at(n)!
-    t.owned = true
-  }
-  // Guarantee the home biome and some food in the starting ring.
-  const ring = neighbors(capital).map((n) => at(n)!)
-  if (!ring.some((t) => t.terrain === homeBiome)) ring[0]!.terrain = homeBiome
-  if (!ring.some((t) => t.terrain === 'plains' || t.terrain === 'lake')) ring[3]!.terrain = 'plains'
+  for (const t of ring) t.owned = true
 
   // Camps: away from the capital, never on lakes.
   const candidates = tiles.filter((t) => hexDistance(t, capital) >= CONFIG.map.campMinDistance && t.terrain !== 'lake')

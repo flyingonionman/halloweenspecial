@@ -18,8 +18,9 @@ import { simulateCombat, type CombatResult } from './combat/sim'
 import { campLoot } from './deeds'
 import { SPECIES, speciesMods, type SpeciesId } from './species'
 import { releaseRefund, upgradeCost, type Unit } from './units/unit'
-import { BUILDING_DEFS, canPlaceOn, totalCost, type BuildingId } from './world/buildings'
-import { affinityBirthWeights, cityBonuses, evaluateCity, isUnlocked, type CityStats } from './world/city'
+import { AFFINITY_LABEL, researchCost, type Affinity } from './affinities'
+import { BUILDING_DEFS, buildingName, canPlaceOn, totalCost, type BuildingId } from './world/buildings'
+import { cityBonuses, evaluateCity, isUnlocked, type CityStats } from './world/city'
 import { troopEconomy } from './synergy'
 import { hexKey, type Hex } from './world/hex'
 import { frontier, generateMap, ownedTiles, tileAt, type WorldMap } from './world/map'
@@ -149,8 +150,7 @@ export function growthRate(s: EconView): number {
 }
 
 export function birthContext(s: GameState): BirthContext {
-  const c = city(s)
-  return { population: s.population, species: s.species, affinityWeights: affinityBirthWeights(c), affinityLevels: c.affinityLevels }
+  return { population: s.population, species: s.species, academies: city(s).academies }
 }
 
 // ── Setup ─────────────────────────────────────────────────────────────
@@ -187,8 +187,7 @@ export function chooseSpecies(state: GameState, id: SpeciesId): GameState {
   return produce(state, (s, ctx) => {
     s.species = id
     s.stock.gold = CONFIG.start.gold
-    const home = TERRAIN_DEFS[s.map.homeBiome].resource
-    if (home !== 'food' && home !== 'gold') s.stock[home] += CONFIG.start.homeResource
+    s.stock.stone = CONFIG.start.stone
     s.muster = birthCitizens(birthContext(s), musterSize(s.species), ctx.rng, ctx.makeUid)
     s.phase = 'turn'
     startRound(s, ctx)
@@ -208,6 +207,13 @@ function startTurn(s: GameState) {
 
 const findOwned = (s: GameState, uid: string) => s.troop.find((u) => u.uid === uid) ?? s.bench.find((u) => u.uid === uid)
 const canAfford = (s: GameState, cost: Cost) => (Object.entries(cost) as [keyof Stock, number][]).every(([k, v]) => s.stock[k] >= v)
+
+/** What you're short of for `cost` (empty when you can afford it). */
+export function shortfall(s: Pick<GameState, 'stock'>, cost: Cost): Cost {
+  const out: Cost = {}
+  for (const [k, v] of Object.entries(cost) as [keyof Stock, number][]) if (s.stock[k] < v) out[k] = v - s.stock[k]
+  return out
+}
 const pay = (s: GameState, cost: Cost) => {
   for (const [k, v] of Object.entries(cost) as [keyof Stock, number][]) s.stock[k] -= v
 }
@@ -227,54 +233,70 @@ export function claimCost(s: GameState): number {
   return t.claimBase + t.claimPerOwned * Math.max(0, ownedTiles(s.map).length - t.startTiles)
 }
 
-export type ClaimBlock = 'not-frontier' | 'camp' | 'cap' | 'gold' | null
+/** Earth's secondary role: it pays for land. The same claim costs this much earth instead of gold. */
+export const claimEarthCost = (s: GameState) => Math.ceil(claimCost(s) / CONFIG.territory.goldPerEarth)
 
-export function claimBlock(s: GameState, h: Hex): ClaimBlock {
+export type ClaimPay = 'gold' | 'earth'
+export type ClaimBlock = 'not-frontier' | 'camp' | 'cap' | 'gold' | 'earth' | null
+
+export function claimBlock(s: GameState, h: Hex, pay: ClaimPay = 'gold'): ClaimBlock {
   if (!frontier(s.map).some((t) => t.q === h.q && t.r === h.r)) return 'not-frontier'
   if (tileAt(s.map, h)!.camp) return 'camp'
   if (ownedTiles(s.map).length >= territoryCap(s)) return 'cap'
-  if (s.stock.gold < claimCost(s)) return 'gold'
+  if (pay === 'gold' && s.stock.gold < claimCost(s)) return 'gold'
+  if (pay === 'earth' && s.stock.earth < claimEarthCost(s)) return 'earth'
   return null
 }
 
-export function claimTile(state: GameState, h: Hex): GameState {
-  if (state.phase !== 'turn' || claimBlock(state, h)) return state
+export function claimTile(state: GameState, h: Hex, pay: ClaimPay = 'gold'): GameState {
+  if (state.phase !== 'turn' || claimBlock(state, h, pay)) return state
   return produce(state, (s) => {
-    s.stock.gold -= claimCost(s)
+    if (pay === 'earth') s.stock.earth -= claimEarthCost(s)
+    else s.stock.gold -= claimCost(s)
     const t = tileAt(s.map, h)!
     t.owned = true
-    log(s, `Claimed ${TERRAIN_DEFS[t.terrain].label.toLowerCase()}.`)
+    log(s, `Claimed ${TERRAIN_DEFS[t.terrain].label.toLowerCase()}${pay === 'earth' ? ' with mud' : ''}.`)
   })
 }
 
 // ── Buildings ─────────────────────────────────────────────────────────
 
-export type BuildBlock = 'locked' | 'not-owned' | 'occupied' | 'terrain' | 'unique' | 'cost' | null
+export type BuildBlock = 'not-owned' | 'occupied' | 'terrain' | 'unique' | 'cost' | null
+
+/** What building `id` costs you right now. Arcane's main use: every Academy after your first needs it. */
+export function buildCost(s: GameState, id: BuildingId): Cost {
+  const cost = { ...BUILDING_DEFS[id].cost(1) }
+  if (id === 'academy') {
+    const owned = city(s).academyCount
+    if (owned > 0) cost.arcane = CONFIG.affinity.extraAcademyArcane * owned
+  }
+  return cost
+}
 
 export function buildBlock(s: GameState, h: Hex, id: BuildingId): BuildBlock {
   const t = tileAt(s.map, h)
   const def = BUILDING_DEFS[id]
-  if (def.affinity && !isUnlocked(def.affinity, city(s).affinityLevels)) return 'locked'
   if (!t?.owned) return 'not-owned'
   if (t.building) return 'occupied'
   if (!canPlaceOn(def, t.terrain)) return 'terrain'
   if (def.unique && s.map.tiles.some((x) => x.building?.id === id)) return 'unique'
-  if (!canAfford(s, def.cost(1))) return 'cost'
+  if (!canAfford(s, buildCost(s, id))) return 'cost'
   return null
 }
 
 export function placeBuilding(state: GameState, h: Hex, id: BuildingId): GameState {
   if (state.phase !== 'turn' || buildBlock(state, h, id)) return state
   return produce(state, (s) => {
-    pay(s, BUILDING_DEFS[id].cost(1))
-    tileAt(s.map, h)!.building = { id, level: 1 }
-    log(s, `Built ${BUILDING_DEFS[id].name}.`)
+    pay(s, buildCost(s, id))
+    // Academies go up empty (level 0) until an offering dedicates them.
+    tileAt(s.map, h)!.building = { id, level: id === 'academy' ? 0 : 1 }
+    log(s, `Built a ${buildingName(id)}.`)
   })
 }
 
 export function canUpgradeBuilding(s: GameState, h: Hex): boolean {
   const b = tileAt(s.map, h)?.building
-  if (!b || s.phase !== 'turn') return false
+  if (!b || s.phase !== 'turn' || b.id === 'academy') return false
   const def = BUILDING_DEFS[b.id]
   return b.level < def.maxLevel && canAfford(s, def.cost(b.level + 1))
 }
@@ -285,7 +307,63 @@ export function upgradeBuilding(state: GameState, h: Hex): GameState {
     const b = tileAt(s.map, h)!.building!
     pay(s, BUILDING_DEFS[b.id].cost(b.level + 1))
     b.level++
-    log(s, `${BUILDING_DEFS[b.id].name} reached level ${b.level}.`)
+    const renamed = buildingName(b.id, b.level) !== buildingName(b.id, b.level - 1)
+    log(s, renamed ? `${buildingName(b.id, b.level - 1)} became a ${buildingName(b.id, b.level)}.` : `${buildingName(b.id)} reached level ${b.level}.`)
+  })
+}
+
+// ── Academies: offerings ──────────────────────────────────────────────
+
+export type OfferBlock = 'no-academy' | 'dedicated' | 'locked' | 'max' | 'cost' | null
+
+/** The offering that dedicates an empty academy to `a`, or raises one already dedicated to it. */
+export function offeringCost(s: GameState, h: Hex, a: Affinity): Cost {
+  const level = tileAt(s.map, h)?.building?.level ?? 0
+  return researchCost(a, level + 1)
+}
+
+/**
+ * Why `a` can't be offered at this academy. An empty academy takes any unlocked
+ * affinity; a dedicated one only its own. Higher tiers unlock once every parent
+ * has an academy at the unlock level.
+ */
+export function offerBlock(s: GameState, h: Hex, a: Affinity): OfferBlock {
+  const b = tileAt(s.map, h)?.building
+  if (!b || b.id !== 'academy' || !tileAt(s.map, h)!.owned) return 'no-academy'
+  if (b.affinity && b.affinity !== a) return 'dedicated'
+  if (!isUnlocked(a, city(s).affinityLevels)) return 'locked'
+  if (b.level >= CONFIG.affinity.maxLevel) return 'max'
+  if (!canAfford(s, offeringCost(s, h, a))) return 'cost'
+  return null
+}
+
+/** Offer essences at an academy: dedicates it to `a` (level 1), or raises it a level. */
+export function offerToAcademy(state: GameState, h: Hex, a: Affinity): GameState {
+  if (state.phase !== 'turn' || offerBlock(state, h, a)) return state
+  return produce(state, (s) => {
+    pay(s, offeringCost(s, h, a))
+    const b = tileAt(s.map, h)!.building!
+    b.affinity = a
+    b.level++
+    log(s, b.level === 1 ? `An academy was dedicated to ${AFFINITY_LABEL[a]}.` : `A ${AFFINITY_LABEL[a]} academy reached level ${b.level}.`)
+  })
+}
+
+// ── Faith (the Church) ────────────────────────────────────────────────
+
+export const ownsBuilding = (s: GameState, id: BuildingId) => s.map.tiles.some((t) => t.owned && t.building?.id === id)
+
+export function canOffer(s: GameState): boolean {
+  return s.phase === 'turn' && ownsBuilding(s, 'church') && s.stock.light >= CONFIG.faith.lightPerOffering && s.morale < CONFIG.morale.max
+}
+
+/** Light's secondary role: offer it at a Church for morale. */
+export function offerLight(state: GameState): GameState {
+  if (!canOffer(state)) return state
+  return produce(state, (s) => {
+    s.stock.light -= CONFIG.faith.lightPerOffering
+    s.morale = clampMorale(s.morale + CONFIG.faith.moralePerOffering)
+    log(s, `An offering of light: +${CONFIG.faith.moralePerOffering} morale.`)
   })
 }
 
@@ -305,7 +383,7 @@ export function demolish(state: GameState, h: Hex): GameState {
   return produce(state, (s) => {
     gain(s, demolishRefund(s, h))
     tileAt(s.map, h)!.building = null
-    log(s, `Demolished ${BUILDING_DEFS[b.id].name}.`)
+    log(s, `Demolished ${buildingName(b.id, b.level)}.`)
   })
 }
 

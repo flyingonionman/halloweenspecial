@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { CONFIG, FRAME_STRIDE, RARITIES, primaryAffinity, type CombatResult, type UnitType } from '../../game'
-import { AFFINITY_COLOR, RARITY_COLOR, TEAM_COLOR } from '../theme'
+import { RARITY_COLOR, TEAM_COLOR, unitColor } from '../theme'
 
 const { fieldWidth: W, fieldHeight: H } = CONFIG.combat
 
@@ -210,7 +210,7 @@ function Units({ result, clock, onTick }: Props) {
         <UnitMesh
           key={r.id}
           type={r.type}
-          element={AFFINITY_COLOR[primaryAffinity(r.affinities)]}
+          element={unitColor(primaryAffinity(r.affinities))}
           trim={RARITY_COLOR[r.rarity]}
           team={TEAM_COLOR[r.team]}
           scale={0.85 + 0.06 * RARITIES.indexOf(r.rarity)}

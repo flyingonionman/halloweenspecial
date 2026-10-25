@@ -7,7 +7,7 @@
  */
 import { CONFIG, RARITIES, type Rarity } from '../config'
 import { TYPE_DEFS, type Stats, type UnitType } from './types'
-import type { AffinityPoints } from '../affinities'
+import { primaryAffinity, rootsOf, type AffinityPoints } from '../affinities'
 import type { Rng } from '../rng'
 import type { Cost } from '../world/terrain'
 import { unitName } from './names'
@@ -85,8 +85,12 @@ export function upgradeCost(u: Unit, mult = 1): Cost | null {
   const target = u.level + 1
   const scale = (1 - upgradeDiscount(u)) * mult
   const cost: Cost = { gold: Math.round(L.goldBase * (rarityIndex(u.rarity) + 1) * Math.pow(L.goldGrowth, u.level - 1) * scale) }
-  for (const m of L.materials) {
-    if (target >= m.fromLevel) cost[m.resource] = Math.max(1, Math.round(m.perLevel * (target - m.fromLevel + 1) * scale))
+  // Training draws on the essences the unit's affinity grows from: a Magma knight needs fire and earth.
+  // Plain citizens (no affinity) train on gold alone.
+  const main = primaryAffinity(u.affinities)
+  if (main && target >= L.essenceFrom) {
+    const amount = Math.max(1, Math.round(L.essencePerLevel * (target - L.essenceFrom + 1) * scale))
+    for (const r of rootsOf(main)) cost[r] = amount
   }
   return cost
 }

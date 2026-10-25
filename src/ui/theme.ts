@@ -17,33 +17,35 @@ export const TERRAIN_COLOR: Record<TerrainId, string> = {
 export const RESOURCE_COLOR: Record<ResourceId, string> = {
   gold: '#e9b44c',
   food: '#b5c46a',
-  timber: '#8fbf6a',
-  iron: '#b0a48a',
   stone: '#a8a5a0',
-  hide: '#d1aa70',
-  ice: '#9fd3ea',
-  ember: '#f07a3a',
-  crystal: '#c49af2',
-  skystone: '#8fd8c8',
+  fire: '#e8692f',
+  water: '#4f9fd8',
+  earth: '#b08850',
+  wind: '#6fd6bd',
+  light: '#f3e2a0',
+  dark: '#9a7aba',
+  arcane: '#c08cf0',
 }
 
+/** Essences share their element's glyph. */
 export const RESOURCE_GLYPH: Record<ResourceId, string> = {
   gold: '◉',
   food: '❦',
-  timber: '♣',
-  iron: '⚒',
   stone: '▧',
-  hide: '❖',
-  ice: '❄',
-  ember: '♨',
-  crystal: '♦',
-  skystone: '☁',
+  fire: '♨',
+  water: '≋',
+  earth: '▲',
+  wind: '☁',
+  light: '☀',
+  dark: '☾',
+  arcane: '✦',
 }
 
 export const KIND_COLOR: Record<BuildingKind, string> = {
   capital: '#e9b44c',
-  extractor: '#b89a6a',
+  gather: '#b89a6a',
   civic: '#e8dcc4',
+  faith: '#f3e2a0',
   military: '#c94a3a',
   research: '#c08cf0',
 }
@@ -97,6 +99,12 @@ export const AFFINITY_GLYPH: Record<Affinity, string> = {
   thunder: 'ϟ',
   eclipse: '◐',
 }
+
+/** Colour for a plain citizen born without an affinity. */
+export const PLAIN_COLOR = '#a89f8e'
+
+/** A unit's main affinity colour, or the plain colour. */
+export const unitColor = (a: Affinity | null) => (a ? AFFINITY_COLOR[a] : PLAIN_COLOR)
 
 export const RARITY_COLOR: Record<Rarity, string> = {
   common: '#8d867a',

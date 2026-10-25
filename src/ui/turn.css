@@ -217,6 +217,53 @@
   box-shadow: 0 0 14px rgba(233, 180, 76, 0.35);
 }
 
+/* map lens labels (eye toggle) */
+.board-label.lens {
+  font-size: 12px;
+  border-width: 1px 1px 1px 3px;
+}
+
+.board-label.lens.faint {
+  opacity: 0.55;
+  font-size: 10px;
+}
+
+/* eye toggle: cycles the map lens */
+.lens-toggle {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 9px;
+  background: rgba(17, 14, 12, 0.88);
+  border: 1px solid var(--line);
+  color: var(--bone);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.lens-toggle:hover {
+  border-color: var(--ember);
+}
+
+.lens-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.lens-toggle.on {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.lens-toggle small {
+  color: var(--bone-dim);
+  font-size: 11px;
+}
+
 .armed-hint {
   position: absolute;
   top: 12px;
@@ -330,9 +377,72 @@ kbd {
   font-size: 11px;
 }
 
-.cost .short {
-  text-decoration: line-through;
-  opacity: 0.6;
+/* Requirements are shown plainly; trying to pay without them shakes the button (.deny) and toasts what's missing. */
+.btn.deny {
+  animation: deny-shake 0.42s ease;
+  border-color: #c94a3a !important;
+  box-shadow: 0 0 0 2px rgba(201, 74, 58, 0.45);
+  background: #3a1612 !important;
+  color: #ffb4a8 !important;
+}
+
+@keyframes deny-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(5px);
+  }
+  60% {
+    transform: translateX(-4px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+.toaster {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+  pointer-events: none;
+}
+
+.toast {
+  max-width: 340px;
+  padding: 9px 13px;
+  background: #1d1613;
+  border: 1px solid #c94a3a;
+  border-left-width: 3px;
+  border-radius: 4px;
+  color: var(--bone, #efe4cc);
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  animation: toast-life 2.8s ease forwards;
+}
+
+@keyframes toast-life {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  8%,
+  80% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 /* side */

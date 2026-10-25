@@ -9,7 +9,8 @@
  * Camps are NPC troops on the map, raided during a turn.
  */
 import { CONFIG, RARITIES } from './config'
-import { AFFINITIES, AFFINITY_DEFS, affinitiesOfTier, type Affinity } from './affinities'
+import { AFFINITY_DEFS, affinitiesOfTier, rootsOf, type Affinity } from './affinities'
+import { landOf } from './world/city'
 import { birthCitizens } from './citizens'
 import { isRanged } from './units/types'
 import { unitPower, type Unit } from './units/unit'
@@ -48,11 +49,13 @@ function generateTroop(spec: TroopSpec, rng: Rng, makeUid: () => string): { troo
   const levels = Object.fromEntries(
     spec.focus.map((a, i) => [a, i === 0 ? spec.research : Math.max(spec.research, AFFINITY_DEFS[spec.focus[0]!].tier > 1 ? CONFIG.affinity.unlockLevel : 0)]),
   ) as Partial<Record<Affinity, number>>
-  const weights = Object.fromEntries(
-    AFFINITIES.map((a) => [a, spec.focus.includes(a) ? 5 + 4 * spec.research : AFFINITY_DEFS[a].tier === 1 ? 1 : 0]),
-  ) as Record<Affinity, number>
+  // The academies such a civ would have built: two for its main affinity, one for each parent.
+  const academies = spec.focus.flatMap((a, i) => {
+    const academy = { affinity: a, level: Math.max(1, levels[a] ?? 0) }
+    return i === 0 ? [academy, academy] : [academy]
+  })
   const pool = birthCitizens(
-    { population: spec.population, species: null, affinityWeights: weights, affinityLevels: levels },
+    { population: spec.population, species: null, academies },
     Math.max(12, spec.size * 5),
     rng,
     makeUid,
@@ -71,7 +74,6 @@ function generateTroop(spec: TroopSpec, rng: Rng, makeUid: () => string): { troo
     troop,
     bonuses: {
       affinityLevels: levels,
-      attune: Object.fromEntries(spec.focus.map((a) => [a, Math.min(3, spec.research)])),
       hpMult: 1 + spec.generic,
       atkMult: 1 + spec.generic,
       defMult: 1 + spec.generic / 2,
@@ -81,15 +83,13 @@ function generateTroop(spec: TroopSpec, rng: Rng, makeUid: () => string): { troo
 
 const atRound = <T>(arr: readonly T[], round: number) => arr[Math.min(round, arr.length - 1)]!
 
-/** The land an affinity ultimately grows from: walk up to a tier-1 ancestor with land. */
+/** The land an affinity ultimately grows from: the first of its tier-1 roots that has land. */
 function homeOf(a: Affinity): TerrainId {
-  const d = AFFINITY_DEFS[a]
-  if (d.land?.[0]) return d.land[0]
-  for (const p of d.parents) {
-    const t = homeOf(p)
-    if (t !== 'plains') return t
+  for (const r of rootsOf(a)) {
+    const t = landOf(r)[0]
+    if (t) return t
   }
-  return d.site !== 'any' && d.site[0] ? d.site[0] : 'plains'
+  return 'plains'
 }
 
 export const aiGhosts: GhostSource = {

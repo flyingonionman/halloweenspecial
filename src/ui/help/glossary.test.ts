@@ -28,7 +28,8 @@ describe('right-click help', () => {
       ...SPECIES_IDS.map((x) => `species:${x}`),
       ...UNIT_TYPES.map((t) => `type:${t}`),
       ...RARITIES.map((r) => `rarity:${r}`),
-      ...['civic', 'extractor', 'military', 'research'].map((k) => `kind:${k}`),
+      ...['gather', 'civic', 'faith', 'military', 'research'].map((k) => `kind:${k}`),
+      'biome',
       ...['tile', 'muster', 'troop', 'build', 'scout'].map((k) => `tab:${k}`),
       ...['hp', 'atk', 'def', 'rng', 'pwr'].map((k) => `stat:${k}`),
     ]
