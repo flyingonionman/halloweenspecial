@@ -10,7 +10,8 @@
  * Morale is both currency (calling musters, enlisting citizens) and productivity
  * (it scales every field's output), so recruiting hard weakens the economy.
  */
-import { CONFIG } from './config'
+import { CONFIG, type Rarity } from './config'
+import { civTier } from './population'
 import { Rng } from './rng'
 import { aiGhosts, campTroop, type GhostSnapshot } from './ai'
 import { birthCitizens, musterSize, type BirthContext, type Citizen } from './citizens'
@@ -18,7 +19,7 @@ import { simulateCombat, type CombatResult } from './combat/sim'
 import { campLoot } from './deeds'
 import { SPECIES, speciesMods, type SpeciesId } from './species'
 import { releaseRefund, upgradeCost, type Unit } from './units/unit'
-import { AFFINITY_LABEL, researchCost, type Affinity } from './affinities'
+import { AFFINITIES, AFFINITY_DEFS, AFFINITY_LABEL, researchCost, type Affinity } from './affinities'
 import { BUILDING_DEFS, buildingName, canPlaceOn, totalCost, type BuildingId } from './world/buildings'
 import { cityBonuses, evaluateCity, isUnlocked, type CityStats } from './world/city'
 import { troopEconomy } from './synergy'
@@ -83,6 +84,27 @@ export interface GameState {
   victory: boolean
   history: { round: number; won: boolean; opponent: string }[]
   log: LogEntry[]
+  /** What the last End turn did, for the turn report. Absent until the first turn ends. */
+  report?: TurnReport
+  /** Affinity levels when this turn began, so the report can say what rose. */
+  levelsAtTurnStart?: Partial<Record<Affinity, number>>
+}
+
+export interface TurnReport {
+  /** The turn that just ended. */
+  round: number
+  turn: number
+  gained: Cost
+  population: number
+  morale: number
+  /** A rarity your population just made possible, if any. */
+  newRarity: Rarity | null
+  /** Extra border tiles you're now allowed to hold. */
+  moreLand: number
+  /** Affinities whose level (best academy) rose this turn, with the new level. */
+  levelsUp: [Affinity, number][]
+  /** Tier-2+ affinities whose academies can now be dedicated. */
+  unlocked: Affinity[]
 }
 
 type Ctx = { rng: Rng; makeUid: () => string }
@@ -203,6 +225,7 @@ function startRound(s: GameState, ctx: Ctx) {
 
 function startTurn(s: GameState) {
   s.musterCalls = 0
+  s.levelsAtTurnStart = { ...city(s).affinityLevels }
 }
 
 const findOwned = (s: GameState, uid: string) => s.troop.find((u) => u.uid === uid) ?? s.bench.find((u) => u.uid === uid)
@@ -587,6 +610,7 @@ export function endTurn(state: GameState): GameState {
   if (!canEndTurn(state)) return state
   return produce(state, (s, ctx) => {
     const c = city(s)
+    const before = { stock: { ...s.stock }, population: s.population, morale: s.morale, cap: territoryCap(s) }
     for (const [k, v] of Object.entries(effectiveYields(s))) if (k !== 'food') s.stock[k as keyof Stock] += v
     if (speciesMods(s.species).interest) {
       const { per, max } = CONFIG.economy.interest
@@ -599,6 +623,21 @@ export function endTurn(state: GameState): GameState {
     s.muster = []
 
     if (!isLastTurn(s)) {
+      const levels = c.affinityLevels
+      const start = s.levelsAtTurnStart ?? levels
+      const gained: Cost = {}
+      for (const k of Object.keys(s.stock) as (keyof Stock)[]) if (s.stock[k] !== before.stock[k]) gained[k] = s.stock[k] - before.stock[k]
+      s.report = {
+        round: s.round,
+        turn: s.turn,
+        gained,
+        population: s.population - before.population,
+        morale: s.morale - before.morale,
+        newRarity: civTier(s.population) !== civTier(before.population) ? civTier(s.population) : null,
+        moreLand: territoryCap(s) - before.cap,
+        levelsUp: AFFINITIES.filter((a) => (levels[a] ?? 0) > (start[a] ?? 0)).map((a) => [a, levels[a]!]),
+        unlocked: AFFINITIES.filter((a) => AFFINITY_DEFS[a].tier > 1 && isUnlocked(a, levels) && !isUnlocked(a, start)),
+      }
       s.turn++
       startTurn(s)
       return

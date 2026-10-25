@@ -194,6 +194,7 @@ export function TurnScreen() {
           {LENS_LABEL[lens]}
           <small>{LENSES.indexOf(lens) + 1}/{LENSES.length}</small>
         </button>
+        <TurnReportCard />
         {armed && (
           <div className="armed-hint">
             Placing <b>{BUILDING_DEFS[armed].name}</b>. Click a highlighted tile. <kbd>Esc</kbd> to cancel.
@@ -215,6 +216,72 @@ export function TurnScreen() {
           {tab === 'scout' && <ScoutPanel onFocusTile={(h) => onSelect(h)} />}
         </div>
       </aside>
+    </div>
+  )
+}
+
+// ── Board: what the last End turn did ─────────────────────────────────
+
+function TurnReportCard() {
+  const [s] = useGame()
+  const r = s.report
+  const id = r ? `${r.round}-${r.turn}` : ''
+  const [closed, setClosed] = useState('')
+  if (!r || r.round !== s.round || closed === id) return null
+  const left = CONFIG.turnsPerRound - s.turn
+  const did = s.log.filter((l) => l.round === r.round && l.turn === r.turn)
+  return (
+    <div className="turn-report" data-help="turn">
+      <header>
+        <span>Turn {r.turn + 1} report</span>
+        <button className="btn-ghost" onClick={() => setClosed(id)} aria-label="Close the turn report">
+          ✕
+        </button>
+      </header>
+      <ul>
+        {Object.keys(r.gained).length > 0 && (
+          <li>
+            Stores <CostChips cost={r.gained} />
+          </li>
+        )}
+        <li>
+          Population <b className="mono">{r.population >= 0 ? '+' : ''}{fmtPop(r.population)}</b> → {fmtPop(s.population)}
+        </li>
+        {r.morale !== 0 && (
+          <li>
+            Morale <b className="mono">{r.morale > 0 ? '+' : ''}{r.morale}</b> → {s.morale}
+          </li>
+        )}
+        {r.newRarity && (
+          <li className="tr-news">
+            <span style={{ color: RARITY_COLOR[r.newRarity] }}>{r.newRarity}</span> citizens can now answer your musters
+          </li>
+        )}
+        {(r.levelsUp ?? []).map(([a, lv]) => (
+          <li key={a} className="tr-news">
+            <span style={{ color: AFFINITY_COLOR[a] }}>
+              {AFFINITY_GLYPH[a]} {AFFINITY_LABEL[a]}
+            </span>{' '}
+            {lv === 1 ? 'academy dedicated: citizens can be born with it' : `reached Lv${lv}: stronger synergy, higher affinity points`}
+          </li>
+        ))}
+        {(r.unlocked ?? []).map((a) => (
+          <li key={a} className="tr-news">
+            Unlocked{' '}
+            <span style={{ color: AFFINITY_COLOR[a] }}>
+              {AFFINITY_GLYPH[a]} {AFFINITY_LABEL[a]}
+            </span>
+            : dedicate an academy to it
+          </li>
+        ))}
+        {r.moreLand > 0 && <li className="tr-news">Room for {r.moreLand} more tile{r.moreLand === 1 ? '' : 's'} of land</li>}
+        {did.map((l, i) => (
+          <li key={i} className="tr-did">
+            {l.text}
+          </li>
+        ))}
+        <li className="tr-battle">⚔ {left === 1 ? 'Battle after this turn' : `Battle in ${left} turns`}</li>
+      </ul>
     </div>
   )
 }

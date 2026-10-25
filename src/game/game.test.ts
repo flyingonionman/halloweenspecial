@@ -207,6 +207,9 @@ describe('buildings & adjacency', () => {
     s = offerToAcademy(offerToAcademy(s, b!, 'earth'), b!, 'earth')
     expect(city(s).affinityLevels).toMatchObject({ fire: 2, earth: 2 })
     expect(s.stock.fire).toBeLessThan(99)
+    const report = endTurn(s).report!
+    expect(report.levelsUp).toEqual(expect.arrayContaining([['fire', 2], ['earth', 2]]))
+    expect(report.unlocked).toContain('magma')
     // both parents at Lv2 open Magma for a third academy
     const c = ownedTiles(s.map).find((t) => !t.building)!
     s = placeBuilding(s, c, 'academy')
@@ -347,6 +350,15 @@ describe('turns & deeds', () => {
     expect(next.turn).toBe(1)
     expect(next.population).toBeGreaterThan(s.population)
     expect(next.stock.gold).toBeGreaterThan(s.stock.gold)
+  })
+
+  it('ending a turn reports what changed', () => {
+    const s = started(4)
+    const after = endTurn(s)
+    const r = after.report!
+    expect([r.round, r.turn]).toEqual([s.round, s.turn])
+    expect(r.population).toBe(after.population - s.population)
+    expect(r.gained.gold ?? 0).toBe(after.stock.gold - s.stock.gold)
   })
 
   it('an empty troop can still march, and forfeits', () => {
