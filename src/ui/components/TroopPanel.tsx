@@ -1,7 +1,14 @@
+/**
+ * The Troop tab: an overview on top (team comp + compact synergies), then
+ * your troop and bench as portrait grids. A portrait opens the unit inline,
+ * where it can be levelled, benched/deployed or released.
+ */
 import {
   AFFINITY_DEFS,
   CONFIG,
   EFFECT_TEXT,
+  TYPE_DEFS,
+  UNIT_TYPES,
   city,
   computeSynergies,
   moveToBench,
@@ -10,32 +17,34 @@ import {
   releaseUnit,
   swapUnits,
   synergyEffects,
-  troopAffinityPoints,
   troopSize,
   type Effects,
+  type Unit,
 } from '../../game'
 import { useState } from 'react'
 import { useGame } from '../useGame'
-import { AffinityChips, UnitCard } from './UnitCard'
 import { UnitDetail } from './UnitDetail'
-import { LevelUpButton } from './LevelUpButton'
-import { AFFINITY_COLOR, AFFINITY_GLYPH } from '../theme'
+import { AffinityBadge } from './UnitCard'
+import { Portrait } from './Portrait'
+import { AFFINITY_COLOR, AFFINITY_GLYPH, RARITY_COLOR, TYPE_GLYPH } from '../theme'
 
 export const effectsText = (fx: Effects) =>
   (Object.entries(fx) as [keyof typeof EFFECT_TEXT, number][]).map(([k, v]) => EFFECT_TEXT[k](v)).join(', ')
+
 
 export function TroopPanel() {
   const [s, dispatch] = useGame()
   const [detail, setDetail] = useState<string | null>(null)
   const detailUnit = detail ? [...s.troop, ...s.bench].find((u) => u.uid === detail) : undefined
   const size = troopSize(s)
-  const levels = city(s).affinityLevels
+  const c = city(s)
+  const synergies = computeSynergies(s.troop, c.affinityLevels)
   // Grouped by affinity tier; within a tier, active synergies and bigger stacks first.
-  const synergies = computeSynergies(s.troop, levels).sort(
+  const sorted = [...synergies].sort(
     (a, b) => AFFINITY_DEFS[a.def.id].tier - AFFINITY_DEFS[b.def.id].tier || b.tier - a.tier || b.points[0]! - a.points[0]!,
   )
 
-  // Drag a card onto another to swap places; onto an empty post or the bench to move it there.
+  // Drag a tile onto another to swap places; onto an empty post or the bench to move it there.
   const [dragging, setDragging] = useState<string | null>(null)
   const dropZone = (target: string) => ({
     onDragOver: (e: React.DragEvent) => dragging && e.preventDefault(),
@@ -48,10 +57,12 @@ export function TroopPanel() {
       dispatch((st) => (target === 'troop' ? moveToTroop(st, uid) : target === 'bench' ? moveToBench(st, uid) : swapUnits(st, uid, target)))
     },
   })
-  const card = (u: (typeof s.troop)[number], where: 'troop' | 'bench') => (
-    <div
+  const tile = (u: Unit) => (
+    <UnitTile
       key={u.uid}
-      className={`drag-card ${dragging === u.uid ? 'dragging' : ''}`}
+      unit={u}
+      onOpen={() => setDetail(u.uid)}
+      className={dragging === u.uid ? 'dragging' : ''}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move'
@@ -60,111 +71,140 @@ export function TroopPanel() {
       }}
       onDragEnd={() => setDragging(null)}
       {...dropZone(u.uid)}
-    >
-      <UnitCard unit={u} compact footer={actions(u.uid, where)} />
-    </div>
+    />
   )
 
-  const actions = (uid: string, where: 'troop' | 'bench') => {
-    const u = [...s.troop, ...s.bench].find((x) => x.uid === uid)!
+  if (detailUnit) {
+    const inTroop = s.troop.includes(detailUnit)
+    const uid = detailUnit.uid
     return (
-      <div className="uc-actions">
-        <button className="btn btn-small btn-detail" onClick={() => setDetail(uid)}>
-          Details
-        </button>
-        <LevelUpButton unit={u} compact />
-        {where === 'troop' ? (
-          <button className="btn btn-small" disabled={s.bench.length >= CONFIG.benchSize} onClick={() => dispatch((st) => moveToBench(st, uid))}>
-            Bench
-          </button>
-        ) : (
-          <button className="btn btn-small" onClick={() => dispatch((st) => moveToTroop(st, uid))}>
-            {s.troop.length < size ? 'Deploy' : 'Swap in'}
-          </button>
-        )}
-        <button
-          className="btn btn-small btn-ghost"
-          title={`Release for ${releaseRefund(u)}`}
-          data-help="release"
-          onClick={() => confirm(`Release ${u.name}? Refund: ${releaseRefund(u)}`) && dispatch((st) => releaseUnit(st, uid))}
-        >
-          ✕
-        </button>
-      </div>
+      <UnitDetail
+        inline
+        unit={detailUnit}
+        s={s}
+        inTroop={inTroop}
+        onClose={() => setDetail(null)}
+        actions={
+          <>
+            {inTroop ? (
+              <button className="btn btn-small" disabled={s.bench.length >= CONFIG.benchSize} onClick={() => dispatch((st) => moveToBench(st, uid))}>
+                Bench
+              </button>
+            ) : (
+              <button className="btn btn-small" onClick={() => dispatch((st) => moveToTroop(st, uid))}>
+                {s.troop.length < size ? 'Deploy' : 'Swap in'}
+              </button>
+            )}
+            <button
+              className="btn btn-small btn-ghost"
+              data-help="release"
+              onClick={() => {
+                if (!confirm(`Release ${detailUnit.name}? Refund: ${releaseRefund(detailUnit)} morale`)) return
+                dispatch((st) => releaseUnit(st, uid))
+                setDetail(null)
+              }}
+            >
+              Release ✕
+            </button>
+          </>
+        }
+      />
     )
   }
 
-  if (detailUnit) return <UnitDetail inline unit={detailUnit} s={s} inTroop={s.troop.includes(detailUnit)} onClose={() => setDetail(null)} />
+  const comp = UNIT_TYPES.map((t) => ({ t, n: s.troop.filter((u) => u.type === t).length })).filter((x) => x.n > 0)
 
   return (
     <div className="troop-panel">
       <h3 className="section-title first" data-help="troop">
         Troop <small>{s.troop.length}/{size}</small>
       </h3>
-      <div className="troop-slots">
-        {Array.from({ length: size }, (_, i) => {
-          const u = s.troop[i]
-          return u ? (
-            card(u, 'troop')
-          ) : (
-            <div key={`empty-${i}`} className="slot-empty" {...dropZone('troop')}>
-              empty post
-            </div>
-          )
-        })}
-      </div>
 
-      <h3 className="section-title" data-help="synergies">
-        Synergies
-      </h3>
-      {s.troop.length > 0 && <AffinityChips points={troopAffinityPoints(s.troop)} />}
-      <ul className="synergies">
-        {synergies.length === 0 && <li className="empty">Affinity points in your troop add up to synergies.</li>}
-        {synergies.map((syn, i) => {
-          const tierHead =
-            i === 0 || AFFINITY_DEFS[syn.def.id].tier !== AFFINITY_DEFS[synergies[i - 1]!.def.id].tier ? (
-              <li key={`t${AFFINITY_DEFS[syn.def.id].tier}`} className="aff-tier">
-                Tier {AFFINITY_DEFS[syn.def.id].tier}
-              </li>
-            ) : null
-          const preview = syn.tier > 0 ? syn.effects : synergyEffects(syn.def, 1, syn.level)
-          return [
-            tierHead,
-            <li key={syn.def.id} data-help={`synergy:${syn.def.id}`} className={`${syn.tier > 0 ? 'active' : ''} ${syn.def.components.length > 1 ? 'compound' : ''}`}>
-              <span className="syn-tier" title="Tier (from troop points)" data-help="synergy-tier">
-                {[1, 2, 3, 4].map((t) => (
-                  <i key={t} className={t <= syn.tier ? 'on' : ''} />
-                ))}
+      {/* Overview: team comp, then one compact line per synergy. */}
+      <div className="troop-summary">
+        {comp.length > 0 ? (
+          <div className="ts-comp" data-help="troop">
+            {comp.map(({ t, n }) => (
+              <span key={t} data-help={`type:${t}`} title={TYPE_DEFS[t].label}>
+                {TYPE_GLYPH[t]} {TYPE_DEFS[t].label} <b>×{n}</b>
               </span>
-              <span className="syn-name">
-                {syn.def.name}
-                <span className="syn-level" title="Affinity level (from academies)" data-help="affinity-level">
-                  academy Lv{syn.level} ×{CONFIG.affinity.levelMult[syn.level]}
-                </span>
-              </span>
-              <span className="syn-points">
-                {syn.def.components.map((a, i) => (
-                  <span key={a} style={{ color: AFFINITY_COLOR[a] }}>
-                    {AFFINITY_GLYPH[a]} {syn.points[i]}
+            ))}
+          </div>
+        ) : (
+          <p className="empty">No one is deployed. Recruit in the Muster tab and enlist citizens.</p>
+        )}
+        {sorted.length > 0 ? (
+          <ul className="syn-compact" data-help="synergies">
+            {sorted.map((syn) => {
+              const a = syn.def.id
+              const preview = syn.tier > 0 ? syn.effects : synergyEffects(syn.def, 1, syn.level)
+              return (
+                <li
+                  key={a}
+                  className={syn.tier > 0 ? 'active' : ''}
+                  data-help={`synergy:${a}`}
+                  title={`Tier ${AFFINITY_DEFS[a].tier} affinity · academy Lv${syn.level} (×${CONFIG.affinity.levelMult[syn.level]})`}
+                >
+                  <span className="syn-tier">
+                    {[1, 2, 3, 4].map((t) => (
+                      <i key={t} className={t <= syn.tier ? 'on' : ''} />
+                    ))}
+                  </span>
+                  <span className="sc-name" style={{ color: AFFINITY_COLOR[a] }}>
+                    {AFFINITY_GLYPH[a]} {syn.def.name}
+                  </span>
+                  <span className="sc-pts">
+                    {syn.points[0]}
                     {syn.nextAt !== null && <small>/{syn.nextAt}</small>}
                   </span>
-                ))}
-              </span>
-              <span className="syn-text">{effectsText(preview)}</span>
-            </li>,
-          ]
+                  <span className="sc-fx">{effectsText(preview)}</span>
+                </li>
+              )
+            })}
+          </ul>
+        ) : (
+          s.troop.length > 0 && <p className="empty">No synergies: plain citizens carry no affinity. Academies change that.</p>
+        )}
+      </div>
+
+      <h3 className="section-title" data-help="troop">
+        Deployed
+      </h3>
+      <div className="portrait-grid">
+        {Array.from({ length: size }, (_, i) => {
+          const u = s.troop[i]
+          return u ? tile(u) : <div key={`empty-${i}`} className="portrait-tile slot-empty" {...dropZone('troop')}>empty post</div>
         })}
-      </ul>
+      </div>
 
       <h3 className="section-title" data-help="bench">
         Bench <small>{s.bench.length}/{CONFIG.benchSize}</small>
       </h3>
-      <div className="bench" {...dropZone('bench')}>
-        {s.bench.length === 0 && <p className="empty">Benched units stay with you between battles.</p>}
-        {s.bench.map((u) => (
-          card(u, 'bench')
-        ))}
+      <div className="bench-drop" {...dropZone('bench')}>
+        {s.bench.length === 0 ? (
+          <p className="empty">Benched units stay with you between battles.</p>
+        ) : (
+          <div className="portrait-grid">{s.bench.map(tile)}</div>
+        )}
       </div>
     </div>
+  )
+}
+
+/** A unit as a face tile: portrait, name, rarity + type, level and veteran stars. */
+function UnitTile({ unit, onOpen, className = '', ...drag }: { unit: Unit; onOpen: () => void } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button {...drag} className={`portrait-tile ${className}`} onClick={onOpen} title={unit.name}>
+      <Portrait unit={unit} size={72} />
+      <span className="pt-name">{unit.name.split(' ').slice(0, 2).join(' ')}</span>
+      <span className="pt-meta">
+        <span style={{ color: RARITY_COLOR[unit.rarity] }}>{unit.rarity}</span> {TYPE_DEFS[unit.type].label}
+      </span>
+      <AffinityBadge points={unit.affinities} />
+      <span className="pt-foot">
+        <b className="mono">Lv{unit.level}</b>
+        {unit.battlesSurvived > 0 && <span className="pt-vet">{'★'.repeat(Math.min(3, unit.battlesSurvived))}</span>}
+      </span>
+    </button>
   )
 }

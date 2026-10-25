@@ -65,6 +65,7 @@ import { TroopPanel } from '../components/TroopPanel'
 import { Portrait } from '../components/Portrait'
 import { UnitDetail } from '../components/UnitDetail'
 import { AcademyPanel } from '../components/AcademyPanel'
+import { AffinityBadge } from '../components/UnitCard'
 import { deny, useRequirementCheck } from '../toast'
 import { BuildingGlyph, CostChips } from '../components/BuildingBits'
 import { fmtOutputs, outputParts, outputScore } from '../format'
@@ -695,6 +696,7 @@ function MusterPanel() {
             <span className="pt-meta">
               <span style={{ color: RARITY_COLOR[c.unit.rarity] }}>{c.unit.rarity}</span> {TYPE_DEFS[c.unit.type].label}
             </span>
+            <AffinityBadge points={c.unit.affinities} />
             <span className="pt-foot">
               <b className="morale-cost">✦{c.price}</b>
             </span>

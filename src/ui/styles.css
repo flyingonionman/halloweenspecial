@@ -792,11 +792,11 @@ small {
   opacity: 0.4;
 }
 
-.bench {
+.bench-drop {
   min-height: 40px;
 }
 
-.drag-card.dragging {
+.portrait-tile.dragging {
   opacity: 0.4;
 }
 
