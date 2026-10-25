@@ -1,7 +1,8 @@
 /* ══ Turn layout v2: tabbed rail · board · tabbed side ═══════════ */
 
+/* No left rail: population and resources live in the top bar, the menu bottom left. */
 .turn {
-  grid-template-columns: 280px 1fr 420px;
+  grid-template-columns: 1fr 420px;
 }
 
 .rail {
@@ -305,7 +306,7 @@
 
 @media (max-width: 1280px) {
   .turn {
-    grid-template-columns: 240px 1fr 360px;
+    grid-template-columns: 1fr 360px;
   }
 }
 

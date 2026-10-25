@@ -4,10 +4,10 @@
  * the matching `can*` helpers let the UI disable buttons.
  *
  * Flow: pick a species → 5 rounds × (10 turns of city-building → 1 battle vs a ghost).
- * Each turn: build, claim, research, trade, raid camps, and recruit from a fresh muster.
+ * Each turn: build, claim, make offerings, trade, raid camps, and recruit: call a muster (morale), then enlist from it.
  * Round battles are sudden elimination: lose one and the run is over.
  *
- * Morale is both currency (recruiting, rerolling the muster) and productivity
+ * Morale is both currency (calling musters, enlisting citizens) and productivity
  * (it scales every field's output), so recruiting hard weakens the economy.
  */
 import { CONFIG } from './config'
@@ -75,8 +75,8 @@ export interface GameState {
   muster: Citizen[]
   troop: Unit[]
   bench: Unit[]
-  /** Muster rerolls made this turn (each costs more). */
-  rerolls: number
+  /** Musters called this turn (each costs more). */
+  musterCalls: number
   /** This round's opponent, known from turn 1. */
   ghost: GhostSnapshot | null
   battle: Battle | null
@@ -173,7 +173,7 @@ export function newGame(seed: number = Date.now() >>> 0): GameState {
     muster: [],
     troop: [],
     bench: [],
-    rerolls: 0,
+    musterCalls: 0,
     ghost: null,
     battle: null,
     victory: false,
@@ -188,7 +188,7 @@ export function chooseSpecies(state: GameState, id: SpeciesId): GameState {
     s.species = id
     s.stock.gold = CONFIG.start.gold
     s.stock.stone = CONFIG.start.stone
-    s.muster = birthCitizens(birthContext(s), musterSize(s.species), ctx.rng, ctx.makeUid)
+    // No muster yet: the player recruits (calls one) when they want citizens.
     s.phase = 'turn'
     startRound(s, ctx)
     log(s, `The ${SPECIES[id].name} settle in ${TERRAIN_DEFS[s.map.homeBiome].label.toLowerCase()} country.`)
@@ -202,7 +202,7 @@ function startRound(s: GameState, ctx: Ctx) {
 }
 
 function startTurn(s: GameState) {
-  s.rerolls = 0
+  s.musterCalls = 0
 }
 
 const findOwned = (s: GameState, uid: string) => s.troop.find((u) => u.uid === uid) ?? s.bench.find((u) => u.uid === uid)
@@ -426,20 +426,20 @@ export function recruit(state: GameState, uid: string): GameState {
   })
 }
 
-export const rerollCost = (s: GameState) => CONFIG.muster.reroll.base + CONFIG.muster.reroll.step * s.rerolls
+export const musterCost = (s: GameState) => CONFIG.muster.call.base + CONFIG.muster.call.step * s.musterCalls
 
-export function canReroll(s: GameState): boolean {
-  return s.phase === 'turn' && s.morale >= rerollCost(s)
+export function canCallMuster(s: GameState): boolean {
+  return s.phase === 'turn' && s.morale >= musterCost(s)
 }
 
-/** Spend morale to replace everyone waiting in the muster with a fresh set of the same size. */
-export function rerollMuster(state: GameState): GameState {
-  if (!canReroll(state)) return state
+/** Recruit: spend morale to call a muster. Calling again sends whoever is waiting home. */
+export function callMuster(state: GameState): GameState {
+  if (!canCallMuster(state)) return state
   return produce(state, (s, ctx) => {
-    s.morale -= rerollCost(s)
-    s.rerolls++
+    s.morale -= musterCost(s)
+    s.musterCalls++
     s.muster = birthCitizens(birthContext(s), musterSize(s.species), ctx.rng, ctx.makeUid)
-    log(s, 'Called a new muster.')
+    log(s, s.musterCalls === 1 ? 'Called a muster.' : 'Called a new muster.')
   })
 }
 
@@ -579,8 +579,8 @@ export function endTurn(state: GameState): GameState {
     s.population = Math.round(s.population * (1 + growthRate(s)))
     s.morale = clampMorale(s.morale + moraleRegen(s))
 
-    // Whoever didn't answer this muster goes home; a fresh one is called.
-    s.muster = birthCitizens(birthContext(s), musterSize(s.species), ctx.rng, ctx.makeUid)
+    // Whoever didn't answer this muster goes home; next turn starts empty.
+    s.muster = []
 
     if (!isLastTurn(s)) {
       s.turn++

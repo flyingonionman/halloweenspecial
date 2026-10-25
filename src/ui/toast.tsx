@@ -42,6 +42,12 @@ export function Toaster() {
   )
 }
 
+/** Shake a button red and toast why (for costs that aren't stock, like morale). */
+export function deny(el: HTMLElement | null, body: React.ReactNode) {
+  if (el) shake(el)
+  showToast(body)
+}
+
 /** Restart the deny-shake on a button. */
 function shake(el: HTMLElement) {
   el.classList.remove('deny')

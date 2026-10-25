@@ -114,12 +114,16 @@ export const CONFIG = {
   muster: {
     /** A fresh muster is called every turn: this many citizens (before species modifiers). */
     size: 6,
-    /** Rerolling the muster costs base + step × rerolls already made this turn. */
-    reroll: { base: 20, step: 10 },
+    /**
+     * The muster starts each turn empty. Recruiting (calling a muster) costs
+     * morale: base + step × musters already called this turn. Calling again
+     * sends whoever is waiting home.
+     */
+    call: { base: 10, step: 10 },
   },
 
   /**
-   * Morale (0–max): spent to recruit and to reroll the muster, and it scales
+   * Morale (0–max): spent to call a muster and to enlist citizens from it, and it scales
    * every field's output from `outputAtZero` (empty) to `outputAtMax` (full).
    */
   morale: {

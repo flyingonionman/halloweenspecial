@@ -31,8 +31,8 @@ import {
   raidCamp,
   rarityOdds,
   recruit,
-  rerollCost,
-  rerollMuster,
+  musterCost,
+  callMuster,
   moraleMult,
   effectiveYields,
   musterSize,
@@ -295,7 +295,7 @@ describe('species', () => {
   })
 
   it('orks get a bigger muster; dwarves rarely see ranged', () => {
-    expect(started(8, 'ork').muster.length).toBe(musterSize('ork'))
+    expect(callMuster(started(8, 'ork')).muster.length).toBe(musterSize('ork'))
     expect(musterSize('ork')).toBeGreaterThan(musterSize('human'))
     const s = started(9, 'dwarf')
     const born = birthCitizens({ ...birthContext(s), species: 'dwarf' }, 300, new Rng(1), counter())
@@ -359,8 +359,8 @@ describe('turns & deeds', () => {
     expect(after.victory).toBe(false)
   })
 
-  it('recruiting spends morale, and morale scales field output', () => {
-    const s = started(4)
+  it('enlisting spends morale, and morale scales field output', () => {
+    const s = callMuster(started(4))
     const c = s.muster.find((m) => m.price <= s.morale)!
     const after = recruit(s, c.unit.uid)
     expect(after.morale).toBe(s.morale - c.price)
@@ -370,20 +370,23 @@ describe('turns & deeds', () => {
     expect(rich.gold).toBeGreaterThan(poor.gold)
   })
 
-  it('rerolling the muster costs more each time', () => {
+  it('recruiting (calling a muster) costs morale, more each time; calling again replaces it', () => {
     let s: GameState = { ...started(4), morale: CONFIG.morale.max }
-    const first = rerollCost(s)
-    s = rerollMuster(s)
+    expect(s.muster).toEqual([])
+    const first = musterCost(s)
+    s = callMuster(s)
     expect(s.morale).toBe(CONFIG.morale.max - first)
-    expect(rerollCost(s)).toBeGreaterThan(first)
-    expect(s.muster.length).toBeGreaterThan(0)
+    expect(s.muster).toHaveLength(musterSize(s.species))
+    expect(musterCost(s)).toBeGreaterThan(first)
+    const again = callMuster(s)
+    expect(again.muster.some((c) => s.muster.some((o) => o.unit.uid === c.unit.uid))).toBe(false)
   })
 
-  it('a fresh muster is called every turn', () => {
-    const s = started(4)
+  it('every turn starts with an empty muster at the base price', () => {
+    const s = callMuster(started(4))
     const next = endTurn(s)
-    expect(next.muster).toHaveLength(musterSize(s.species))
-    expect(next.muster.some((c) => s.muster.some((o) => o.unit.uid === c.unit.uid))).toBe(false)
+    expect(next.muster).toEqual([])
+    expect(musterCost(next)).toBe(CONFIG.muster.call.base)
   })
 
   it('higher tiers unlock through their parents', () => {

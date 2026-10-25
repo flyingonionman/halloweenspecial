@@ -742,7 +742,8 @@ function Tiles({
   );
 }
 
-const HEX_R = 0.97;
+/** Tile radius = the grid spacing (hexToWorld size 1): tiles touch, so the land reads as one surface. */
+const HEX_R = 1;
 const hexGeo = new THREE.CylinderGeometry(HEX_R, HEX_R, 1, 6);
 // CylinderGeometry puts a corner on +z; a 6-segment ring needs thetaStart π/6 to line up
 // after being laid flat. Outer edge sits exactly on the tile rim.
@@ -753,19 +754,10 @@ const ringGeo = new THREE.RingGeometry(
   1,
   Math.PI / 6,
 );
-/** Thin gold rim on every tile you own. */
-const ownedRimGeo = new THREE.RingGeometry(
-  HEX_R - 0.07,
-  HEX_R - 0.02,
-  6,
-  1,
-  Math.PI / 6,
-);
-/** Owned tops glow faintly warm; wild land is pulled toward a cold night blue. */
-const OWNED_GLOW = "#2a1a08";
 /** Selection: a cool turquoise ring plus a faint matching glow on the tile. */
 const SELECT_COLOR = "#46e0cf";
 const SELECT_GLOW = "#0b2e2b";
+/** Wild land is pulled toward a cold night blue. */
 const WILD = new THREE.Color("#0b0d18");
 
 interface TileProps {
@@ -829,13 +821,8 @@ const TileMesh = function TileMesh({
     [surf, tint],
   );
   const tex = tileSurface?.map ?? terrainTexture(tile.terrain);
-  const emissive = selected
-    ? SELECT_GLOW
-    : hovered
-      ? "#4a3420"
-      : tile.owned
-        ? OWNED_GLOW
-        : "#000000";
+  // No tint on owned tops: territory reads from the gold rim and border (and wild land darkening).
+  const emissive = selected ? SELECT_GLOW : hovered ? "#4a3420" : "#000000";
   const lake = tile.terrain === "lake";
   // Buildings (except the capital) stand on a corner pad and leave the terrain in place.
   const padded = !!tile.building && tile.building.id !== "capital";
@@ -925,22 +912,6 @@ const TileMesh = function TileMesh({
           {relief && (
             <mesh geometry={relief} castShadow receiveShadow>
               <meshStandardMaterial {...topProps} />
-            </mesh>
-          )}
-          {tile.owned && !selected && (
-            <mesh
-              geometry={ownedRimGeo}
-              rotation-x={-Math.PI / 2}
-              position-y={0.012}
-            >
-              <meshBasicMaterial
-                color="#ffc070"
-                transparent
-                opacity={0.4}
-                side={THREE.DoubleSide}
-                depthWrite={false}
-                toneMapped={false}
-              />
             </mesh>
           )}
           {tile.building &&
@@ -1161,6 +1132,84 @@ function VolcanoTop({ turn, padded, color, emissive }: { turn: number; padded: b
   return <mesh geometry={geo} material={material} rotation-y={(turn * Math.PI) / 3} castShadow receiveShadow />;
 }
 
+// ── Building models (Sketchfab, CC BY 4.0; see Credits) ───────────────
+
+/** Bump ?v= when a file changes, or browsers keep the cached old model. */
+const MINE_URL = "/models/mine.glb?v=1"; // "Low-poly Mine" by Sponk: merged, simplified, colours in COLOR_0
+const OBELISK_URL = "/models/obelisk.glb?v=1"; // "Fancy Obelisk" by Oneironauticus: textures cut to 256px
+
+/**
+ * A downloaded model as a ready-to-place template: node transforms baked,
+ * centred, base at y = 0, scaled so its footprint is `width` wide or it
+ * stands `height` tall. Clone it per instance.
+ */
+function useFittedModel(url: string, fit: { width?: number; height?: number; sink?: number }, vertexColors = false) {
+  const { scene } = useGLTF(url);
+  return useMemo(() => {
+    const root = scene.clone(true);
+    root.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(root);
+    const size = box.getSize(new THREE.Vector3());
+    const s = fit.height ? fit.height / size.y : (fit.width ?? 1) / Math.max(size.x, size.z);
+    const centre = box.getCenter(new THREE.Vector3());
+    const holder = new THREE.Group();
+    // `sink`: fraction of its height pushed into the ground, so rounded bases sit in the terrain.
+    root.position.set(-centre.x, -box.min.y - (fit.sink ?? 0) * size.y, -centre.z);
+    holder.add(root);
+    holder.scale.setScalar(s);
+    holder.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.castShadow = true;
+      m.receiveShadow = true;
+      // Low-poly models keep their colours in COLOR_0: show them, faceted.
+      if (vertexColors) m.material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: true });
+    });
+    return holder;
+  }, [scene, fit.width, fit.height, fit.sink, vertexColors]);
+}
+useGLTF.preload(MINE_URL);
+useGLTF.preload(OBELISK_URL);
+
+/** Mine → Quarry → Excavator: one model, a little bigger per level (it brings its own ore and cart). */
+function MineModel({ level }: { resource: keyof typeof RESOURCE_COLOR; level: number }) {
+  const template = useFittedModel(MINE_URL, { width: 0.95, sink: 0.15 }, true);
+  const model = useMemo(() => template.clone(true), [template]);
+  return (
+    <>
+      {/* the template carries its fit scale, so level growth goes on a wrapper */}
+      <group scale={0.85 + 0.15 * (level - 1)}>
+        <primitive object={model} />
+      </group>
+    </>
+  );
+}
+
+/** The academy obelisk, with a floating orb in its affinity's colour and a pip per level. */
+function ObeliskAcademy({ color, level }: { color: string; level: number }) {
+  const template = useFittedModel(OBELISK_URL, { height: 1.6 });
+  const model = useMemo(() => template.clone(true), [template]);
+  const orb = useRef<THREE.Mesh>(null);
+  useFrame((s) => {
+    if (orb.current) orb.current.position.y = 1.78 + Math.sin(s.clock.elapsedTime * 2) * 0.04;
+  });
+  return (
+    <>
+      <primitive object={model} />
+      <mesh ref={orb} position-y={1.78}>
+        <icosahedronGeometry args={[0.09, 0]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={level ? 0.6 + level * 0.35 : 0.15} flatShading />
+      </mesh>
+      {Array.from({ length: level }, (_, i) => (
+        <mesh key={i} position={[Math.cos((i / 4) * Math.PI * 2) * 0.32, 0.06, Math.sin((i / 4) * Math.PI * 2) * 0.32]}>
+          <boxGeometry args={[0.07, 0.07, 0.07]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.6} />
+        </mesh>
+      ))}
+    </>
+  );
+}
+
 // ── Buildings ─────────────────────────────────────────────────────────
 
 function BuildingMesh({
@@ -1180,17 +1229,17 @@ function BuildingMesh({
     <group ref={ref} scale={0.01}>
       {def.kind === "capital" && <Capital />}
       {building.id === "mine" && (
-        <Mine
+        <MineModel
           resource={TERRAIN_DEFS[terrain].resource}
           level={building.level}
         />
       )}
       {building.id === "academy" && (
-        <Spire
+        <ObeliskAcademy
           color={
             building.affinity ? AFFINITY_COLOR[building.affinity] : PLAIN_COLOR
           }
-          level={Math.max(1, building.level)}
+          level={building.level}
         />
       )}
       {building.id === "church" && <Church />}
@@ -1276,113 +1325,7 @@ function House({
   );
 }
 
-/** Ore heaps in the colour of what's dug: more of them as the mine grows. */
-function OrePile({
-  resource,
-  count,
-}: {
-  resource: keyof typeof RESOURCE_COLOR;
-  count: number;
-}) {
-  const c = RESOURCE_COLOR[resource];
-  return (
-    <>
-      {Array.from({ length: count }, (_, i) => {
-        const a = 0.4 + i * 1.3;
-        const s = 0.14 - i * 0.015;
-        return (
-          <mesh
-            key={i}
-            position={[0.28 * Math.cos(a), s * 0.6, 0.28 * Math.sin(a)]}
-            castShadow
-          >
-            <dodecahedronGeometry args={[s, 0]} />
-            <meshStandardMaterial
-              color={c}
-              flatShading
-              emissive={c}
-              emissiveIntensity={0.15}
-            />
-          </mesh>
-        );
-      })}
-    </>
-  );
-}
-
 const Timber = () => <meshStandardMaterial color="#5a4632" flatShading />;
-
-/** Mine (Lv1) → Quarry (Lv2) → Excavator (Lv3). */
-function Mine({
-  resource,
-  level,
-}: {
-  resource: keyof typeof RESOURCE_COLOR;
-  level: number;
-}) {
-  return (
-    <>
-      {level === 1 && (
-        <>
-          {/* a timber headframe over the shaft */}
-          {[-0.12, 0.12].map((x) => (
-            <mesh key={x} position={[x - 0.15, 0.22, -0.1]} castShadow>
-              <boxGeometry args={[0.04, 0.44, 0.04]} />
-              <Timber />
-            </mesh>
-          ))}
-          <mesh position={[-0.15, 0.44, -0.1]} castShadow>
-            <boxGeometry args={[0.32, 0.05, 0.06]} />
-            <Timber />
-          </mesh>
-          <mesh position={[-0.15, 0.02, -0.1]}>
-            <boxGeometry args={[0.22, 0.04, 0.22]} />
-            <meshStandardMaterial color="#1a1310" />
-          </mesh>
-        </>
-      )}
-      {level === 2 && (
-        <>
-          {/* a stepped quarry cut */}
-          {[0, 1, 2].map((i) => (
-            <mesh
-              key={i}
-              position={[-0.12, 0.04 + i * 0.07, -0.1 - i * 0.09]}
-              castShadow
-              receiveShadow
-            >
-              <boxGeometry args={[0.5 - i * 0.12, 0.08, 0.2]} />
-              <Stone c={i % 2 ? "#a8a093" : "#968e80"} />
-            </mesh>
-          ))}
-          <House x={0.3} z={-0.25} s={0.7} roof="#5a4632" />
-        </>
-      )}
-      {level >= 3 && (
-        <>
-          {/* the excavator: a crane arm over a deep pit */}
-          <mesh position={[-0.15, 0.02, 0]}>
-            <cylinderGeometry args={[0.28, 0.2, 0.04, 8]} />
-            <meshStandardMaterial color="#1a1310" />
-          </mesh>
-          <mesh position={[0.25, 0.3, -0.2]} castShadow>
-            <boxGeometry args={[0.06, 0.6, 0.06]} />
-            <meshStandardMaterial color="#c9a23a" flatShading metalness={0.3} />
-          </mesh>
-          <mesh position={[0.05, 0.58, -0.1]} rotation-z={0.25} castShadow>
-            <boxGeometry args={[0.5, 0.05, 0.05]} />
-            <meshStandardMaterial color="#c9a23a" flatShading metalness={0.3} />
-          </mesh>
-          <mesh position={[-0.18, 0.4, -0.05]}>
-            <boxGeometry args={[0.1, 0.08, 0.1]} />
-            <meshStandardMaterial color="#555049" metalness={0.6} />
-          </mesh>
-        </>
-      )}
-      <OrePile resource={resource} count={level + 1} />
-    </>
-  );
-}
 
 function Fishery() {
   return (
@@ -1616,57 +1559,6 @@ function Armory() {
         <boxGeometry args={[0.14, 0.08, 0.06]} />
         <meshStandardMaterial color="#3d3a37" metalness={0.8} roughness={0.3} />
       </mesh>
-    </>
-  );
-}
-
-function Spire({ color, level }: { color: string; level: number }) {
-  const orb = useRef<THREE.Mesh>(null);
-  const h = 0.5 + level * 0.22;
-  useFrame((s) => {
-    if (orb.current)
-      orb.current.position.y =
-        h + 0.14 + Math.sin(s.clock.elapsedTime * 2) * 0.04;
-  });
-  return (
-    <>
-      <mesh position-y={0.08} castShadow>
-        <cylinderGeometry args={[0.36, 0.4, 0.16, 8]} />
-        <Stone c="#b5aa95" />
-      </mesh>
-      <mesh position-y={h / 2 + 0.1} castShadow>
-        <cylinderGeometry args={[0.08, 0.2, h, 6]} />
-        <meshStandardMaterial
-          color={new THREE.Color(color).lerp(new THREE.Color("#d8ccb4"), 0.55)}
-          flatShading
-        />
-      </mesh>
-      <mesh ref={orb}>
-        <icosahedronGeometry args={[0.1, 0]} />
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={0.6 + level * 0.35}
-          flatShading
-        />
-      </mesh>
-      {Array.from({ length: level }, (_, i) => (
-        <mesh
-          key={i}
-          position={[
-            Math.cos((i / 4) * Math.PI * 2) * 0.3,
-            0.2,
-            Math.sin((i / 4) * Math.PI * 2) * 0.3,
-          ]}
-        >
-          <boxGeometry args={[0.06, 0.06, 0.06]} />
-          <meshStandardMaterial
-            color={color}
-            emissive={color}
-            emissiveIntensity={0.5}
-          />
-        </mesh>
-      ))}
     </>
   );
 }

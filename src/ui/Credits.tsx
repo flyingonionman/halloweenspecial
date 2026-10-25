@@ -18,6 +18,18 @@ const MODELS: Credit[] = [
     license: 'CC BY 4.0',
     link: 'https://sketchfab.com/3d-models/volcano-v1-cf92d35ac0c34b71a44870959ed3abc3',
   },
+  {
+    what: 'Low-poly Mine (mines; merged and simplified)',
+    who: 'Sponk',
+    license: 'CC BY 4.0',
+    link: 'https://sketchfab.com/3d-models/low-poly-mine-51f04c3d37784904b12fc020f0e9bee2',
+  },
+  {
+    what: 'Fancy Obelisk (academies; textures reduced)',
+    who: 'Samuel Francis Johnson (Oneironauticus)',
+    license: 'CC BY 4.0',
+    link: 'https://sketchfab.com/3d-models/fancy-obelisk-5c762d399d7d4c869cb3fcc49e0dcd43',
+  },
 ]
 
 const POLY_HAVEN = 'https://polyhaven.com'

@@ -22,7 +22,7 @@ import {
   campLoot,
   campRarityHint,
   canRecruit,
-  canReroll,
+  canCallMuster,
   canTrade,
   canUpgradeBuilding,
   city,
@@ -44,8 +44,8 @@ import {
   raidBlock,
   raidCamp,
   recruit,
-  rerollCost,
-  rerollMuster,
+  musterCost,
+  callMuster,
   territoryCap,
   tierProgress,
   tileAt,
@@ -65,7 +65,7 @@ import { TroopPanel } from '../components/TroopPanel'
 import { Portrait } from '../components/Portrait'
 import { UnitDetail } from '../components/UnitDetail'
 import { AcademyPanel } from '../components/AcademyPanel'
-import { useRequirementCheck } from '../toast'
+import { deny, useRequirementCheck } from '../toast'
 import { BuildingGlyph, CostChips } from '../components/BuildingBits'
 import { fmtOutputs, outputParts, outputScore } from '../format'
 import { AFFINITY_COLOR, AFFINITY_GLYPH, KIND_COLOR, PLAIN_COLOR, RARITY_COLOR, RESOURCE_COLOR, RESOURCE_GLYPH, TERRAIN_COLOR, fmtPop } from '../theme'
@@ -118,14 +118,12 @@ function lensOverlays(s: GameState, lens: Lens): Record<string, TileOverlay> | n
 }
 
 type RightTab = 'tile' | 'muster' | 'troop' | 'build' | 'scout'
-type LeftTab = 'population' | 'resources'
 
 export function TurnScreen() {
   const [s, dispatch] = useGame()
   const [selected, setSelected] = useState<Hex | null>(null)
   const [armed, setArmed] = useState<BuildingId | null>(null)
   const [tab, setTab] = useState<RightTab>('muster')
-  const [left, setLeft] = useState<LeftTab>('population')
 
   const frontierKeys = useMemo(() => new Set(frontier(s.map).map(hexKey)), [s.map])
   const check = useRequirementCheck()
@@ -176,21 +174,6 @@ export function TurnScreen() {
 
   return (
     <div className="turn">
-      <aside className="rail">
-        <nav className="side-tabs">
-          {(
-            [
-              ['population', 'Population'],
-              ['resources', 'Resources'],
-            ] as [LeftTab, string][]
-          ).map(([id, label]) => (
-            <button key={id} className={left === id ? 'on' : ''} onClick={() => setLeft(id)}>
-              {label}
-            </button>
-          ))}
-        </nav>
-        <div className="rail-body">{left === 'population' ? <PopulationTab /> : <ResourcesTab />}</div>
-      </aside>
       <section className="board-wrap">
         <Board3D map={s.map} selected={selected} frontier={frontierKeys} previews={previews} overlays={overlays} onSelect={onSelect} />
         <button
@@ -234,7 +217,8 @@ export function TurnScreen() {
 
 // ── Left: population ──────────────────────────────────────────────────
 
-function PopulationTab() {
+/** Population, rarity and affinity odds (top-left dropdown). */
+export function PopulationTab() {
   const [s] = useGame()
   const c = city(s)
   const rar = birthRarityOdds(s.population, s.species)
@@ -326,7 +310,8 @@ function PopulationTab() {
 
 // ── Left: resources ───────────────────────────────────────────────────
 
-function ResourcesTab() {
+/** Stock, land, claims, troop bonuses, chronicle (top-right dropdown). */
+export function ResourcesTab() {
   const [s] = useGame()
   const c = city(s)
   const y = effectiveYields(s)
@@ -513,7 +498,8 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
 
       {def && def.kind !== 'capital' && (
         <div className="tile-actions">
-          {def.maxLevel > 1 && (
+          {/* academies level up through offerings (their own panel), not here */}
+          {def.maxLevel > 1 && def.id !== 'academy' && (
             <div className="row">
               <span>
                 Level {t.building!.level}/{def.maxLevel}
@@ -650,33 +636,57 @@ function MusterPanel() {
         actions={
           <button
             className="btn btn-primary"
-            disabled={!canRecruit(s, current.unit.uid)}
-            onClick={() => {
+            onClick={(e) => {
+              if (!canRecruit(s, current.unit.uid)) {
+                deny(e.currentTarget, s.morale < current.price ? `You are missing ${current.price - s.morale} morale.` : 'Your troop and bench are full.')
+                return
+              }
               dispatch((st) => recruit(st, current.unit.uid))
               setOpen(null)
             }}
           >
-            Recruit <b className="morale-cost">✦{current.price}</b>
+            Enlist <b className="morale-cost">✦{current.price}</b>
           </button>
         }
       />
     )
   }
 
+  const recruitNow = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (!canCallMuster(s)) return deny(e.currentTarget, `You are missing ${musterCost(s) - s.morale} morale.`)
+    dispatch(callMuster)
+  }
+  const first = s.musterCalls === 0
+
   return (
     <div>
       <div className="muster-head">
         <p className="lede" data-help="muster">
-          This turn’s muster. Recruit with <b>morale</b>; a new muster is called next turn.
+          {first ? (
+            <>
+              Nobody is waiting. <b>Recruit</b> to call a muster for <b>morale</b>, then enlist who you want.
+            </>
+          ) : (
+            <>
+              This turn’s muster. Enlist with <b>morale</b>; recruiting again sends them home and calls new ones.
+            </>
+          )}
         </p>
-        <button className="btn btn-small" data-help="reroll" disabled={!canReroll(s)} onClick={() => dispatch(rerollMuster)}>
-          ↻ Reroll <b className="morale-cost">✦{rerollCost(s)}</b>
-        </button>
+        {!first && (
+          <button className="btn btn-small" data-help="recruit" onClick={recruitNow}>
+            ↻ Recruit again <b className="morale-cost">✦{musterCost(s)}</b>
+          </button>
+        )}
       </div>
       <div className="muster-morale" data-help="morale">
         ✦ {s.morale} morale · fields ×{moraleMult(s.morale).toFixed(2)}
       </div>
-      {s.muster.length === 0 && <p className="empty">Everyone answered. A new muster is called next turn.</p>}
+      {first && (
+        <button className="btn btn-primary muster-call" data-help="recruit" onClick={recruitNow}>
+          Recruit <b className="morale-cost">✦{musterCost(s)}</b>
+        </button>
+      )}
+      {!first && s.muster.length === 0 && <p className="empty">Everyone answered. Recruit again to call more.</p>}
       <div className="portrait-grid">
         {s.muster.map((c) => (
           <button key={c.unit.uid} className={`portrait-tile ${c.price > s.morale ? 'poor' : ''}`} onClick={() => setOpen(c.unit.uid)} title={c.unit.name}>

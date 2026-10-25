@@ -3,8 +3,12 @@
  * could dedicate it to; a dedicated one shows its level, what it does for
  * births, and the offering that raises it.
  */
+import { useState } from 'react'
 import {
+  AFFINITY_DEFS,
   AFFINITY_LABEL,
+  RESOURCE_LABEL,
+  rootsOf,
   CONFIG,
   affinitiesOfTier,
   affinityOdds,
@@ -21,7 +25,7 @@ import {
 import { useGame } from '../useGame'
 import { useRequirementCheck } from '../toast'
 import { CostChips } from './BuildingBits'
-import { AFFINITY_COLOR, AFFINITY_GLYPH } from '../theme'
+import { AFFINITY_COLOR, AFFINITY_GLYPH, RESOURCE_GLYPH } from '../theme'
 
 const pct = (v: number) => `${Math.round(v * 100)}%`
 
@@ -31,27 +35,46 @@ export function AcademyPanel({ hex }: { hex: Hex }) {
   return b.affinity ? <Dedicated hex={hex} affinity={b.affinity} level={b.level} /> : <Empty hex={hex} />
 }
 
+/** "♨ Ember → Fire", or "♨ Ember + ▲ Mud → Magma": what you offer and what it makes. */
+const offerLabel = (a: Affinity) => `${rootsOf(a).map((r) => `${RESOURCE_GLYPH[r]} ${RESOURCE_LABEL[r]}`).join(' + ')} → ${AFFINITY_LABEL[a]}`
+
 function Empty({ hex }: { hex: Hex }) {
-  const [s] = useGame()
+  const [s, dispatch] = useGame()
   const levels = city(s).affinityLevels
-  const tiers = [1, 2, 3, 4].map((t) => ({ t, list: affinitiesOfTier(t).filter((a) => isUnlocked(a, levels)) })).filter((g) => g.list.length)
+  const options = [1, 2, 3, 4].flatMap((t) => affinitiesOfTier(t).filter((a) => isUnlocked(a, levels)))
+  const [pick, setPick] = useState<Affinity>(options[0]!)
+  const cost = offeringCost(s, hex, pick)
+  const check = useRequirementCheck()
   return (
     <div className="academy" data-help="kind:research">
       <span className="label">Dedicate this academy</span>
-      <p className="muted">Offer an affinity’s essences. Citizens will then be born with that affinity more often.</p>
-      {tiers.map((g) => (
-        <section key={g.t}>
-          <h5 className="aff-tier">Tier {g.t}</h5>
-          <ul className="ac-list">
-            {g.list.map((a) => (
-              <OfferRow key={a} hex={hex} a={a} label="Dedicate" />
-            ))}
-          </ul>
-        </section>
-      ))}
-      {tiers.length === 1 && (
+      <p className="muted">Pick what to offer. Citizens will then be born with that affinity more often.</p>
+      <div className="ac-dedicate">
+        <select value={pick} onChange={(e) => setPick(e.target.value as Affinity)} aria-label="Offering">
+          {[1, 2, 3, 4].map((t) => {
+            const list = options.filter((a) => AFFINITY_DEFS[a].tier === t)
+            return list.length ? (
+              <optgroup key={t} label={`Tier ${t}`}>
+                {list.map((a) => (
+                  <option key={a} value={a}>
+                    {offerLabel(a)}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null
+          })}
+        </select>
+        <CostChips cost={cost} />
+        <button
+          className="btn btn-primary btn-small"
+          onClick={(e) => check(e.currentTarget, cost) && dispatch((st) => offerToAcademy(st, hex, pick))}
+        >
+          Dedicate
+        </button>
+      </div>
+      {options.every((a) => AFFINITY_DEFS[a].tier === 1) && (
         <p className="muted">
-          Tier 2 opens when both parents have an academy at Lv{CONFIG.affinity.unlockLevel} (e.g. Fire + Earth → Magma).
+          Tier 2 opens when both parents have an academy at Lv{CONFIG.affinity.unlockLevel} (e.g. Ember + Mud → Magma).
         </p>
       )}
     </div>

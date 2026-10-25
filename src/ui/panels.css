@@ -164,6 +164,69 @@
   flex: none;
 }
 
+/* the turn's first Recruit: the one big call to action in an empty muster */
+.btn.muster-call {
+  display: block;
+  width: 100%;
+  margin: 10px 0 4px;
+  padding: 12px;
+  font-size: 15px;
+}
+
+/* academy panel (Tile tab on an academy) */
+.academy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: rgba(192, 140, 240, 0.04);
+}
+
+.academy .muted {
+  margin: 0;
+  font-size: 12px;
+}
+
+.ac-dedicate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ac-dedicate select {
+  flex: 1;
+  min-width: 0;
+  background: var(--ink-3);
+  color: var(--bone);
+  border: 1px solid var(--line);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 4px 6px;
+}
+
+.ac-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ac-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.ac-list .ac-name {
+  flex: 1;
+}
+
+/* morale cost on a light primary button: the usual pale blue disappears on cream */
+.btn-primary .morale-cost {
+  color: #1f5a86;
+}
+
 .muster-morale {
   margin: 8px 0 12px;
   font-family: var(--mono);

@@ -26,9 +26,10 @@ Windows + Git Bash. `cd` in Bash trips an fnm hook: run commands from the repo r
 
 **Population** drives unit rarity. Thresholds: uncommon 100, rare 1k, epic 100k, legendary 1M. A rarity's odds ramp from its threshold toward the *next* one (`population.ts`). Growth comes from food (× morale).
 
-**Morale (0–100):** currency for recruiting (by rarity) and rerolling the muster (cost rises per reroll per turn), and a multiplier on every field's output (×0.5 empty → ×1.5 full). Regen per turn + Light-type synergies + raid/battle wins.
+**Morale (0–100):** currency for recruiting (calling a muster: 10, +10 per further call that turn) and enlisting citizens (by rarity), and a multiplier on every field's output (×0.5 empty → ×1.5 full). Regen per turn + Light-type synergies + raid/battle wins.
 
-**Muster:** a fresh set of citizens every turn (6; Orks ×2), shaped by population (rarity) and academies (affinities). Unrecruited citizens go home at turn end. Reroll with morale.
+**Muster:** every turn starts **empty** (the user's call). The player presses **Recruit** (`callMuster`, formerly "reroll") to spend morale and call citizens (6; Orks ×2), shaped by population (rarity) and academies (affinities), then **Enlists** individuals (`recruit` in code; UI says "Enlist"). Recruiting again replaces whoever is waiting; everyone unenlisted goes home at turn end.
+- Tiles have **no gaps** (`HEX_R = 1`, the grid spacing), so the land reads as one surface.
 
 **Resources** (`world/terrain.ts`): gold, food (a flow, not stored), stone, and seven **essences**, one per tier-1 element (fire, water, earth, wind, light, dark, arcane). Every essence trains units and is offered to academies; each also has a deliberately **asymmetric secondary role** (the user's design: spend on training vs the side role):
 - stone: every building costs it
@@ -77,7 +78,10 @@ src/game/            pure TypeScript, no React. Actions are (state, …args) => 
   game.ts            GameState + all actions; city(s) is memoized per map object
   testing/bot.ts     scripted player for tests and the balance probe
 src/ui/              React UI; R3F board (board/Board3D.tsx) and battle playback
-  screens/TurnScreen.tsx   left tabs (Population/Resources, must fit with no scrolling) · board · right tabs (Tile/Muster/Troop/Build/Scout)
+  App.tsx                  StarCraft-style corners: top-left population badge (dropdown = PopulationTab); top-right a *flat*
+                           row of cells for every resource held or produced + food, morale, land, and a "⋯" dropdown
+                           (ResourcesTab); bottom-left CornerMenu (⚙ menu opening upward, End turn, game name, timeline). No left rail.
+  screens/TurnScreen.tsx   board · right tabs (Tile/Muster/Troop/Build/Scout); exports PopulationTab/ResourcesTab for the dropdowns
   board/BuildPanel.tsx     flat build list → detail view with turning 3D model
   help/                    click-to-learn: any non-button element with data-help="key" opens a glossary popover
   lexicon/                 ⚙ → Lexicon: tree diagram, buildings, units, species, terrain (generated from data)
@@ -88,6 +92,9 @@ public/models/       volcano.glb: "Volcano V1" by JayT3D (CC BY 4.0), cut from 8
                      ~4.8k tris, photo baked into vertex colours, COLOR_0 alpha = lava glow via onBeforeCompile).
                      Script: scratchpad gltf-tools/shrink-volcano.mjs pattern (gltf-transform + browser canvas;
                      the gltf-transform CLI's sharp/webp step is broken on this Windows box).
+                     mine.glb: "Low-poly Mine" by Sponk (CC BY 4.0), 54 meshes merged, 83k → 3.3k tris, colours in
+                     COLOR_0 (scratchpad gltf-tools/shrink-flat.mjs). obelisk.glb: "Fancy Obelisk" by Oneironauticus
+                     (CC BY 4.0), academies; textures cut to 256px WebP (shrink-tex.mjs). Placed via `useFittedModel`.
 src/ui/Credits.tsx   ⚙ → Credits. Every third-party asset + licence. CC-BY assets MUST be listed here.
                      Mapped by SURFACE in Board3D; only lake is still procedural.
 ```
@@ -103,10 +110,10 @@ src/ui/Credits.tsx   ⚙ → Credits. Every third-party asset + licence. CC-BY a
 - **Eye toggle** (top left of the board) cycles map lenses: Normal → Resources (tint by main resource, owned tiles labelled with output) → Buildings (building/academy/camp labels). `lensOverlays` in TurnScreen → `overlays` prop on Board3D.
 - Bare volcanic tiles use the volcano model **as the tile top** (`VolcanoTop`): its own floor is clamped to the hexagon (`fitToHex`), eased down at the rim, tinted with the tile's `topColor`, and the flat cap is hidden (`capHidden`). The volcanic photo texture only shows under buildings/camps. No other terrain props.
 - **Buildings stand on a corner pad** (`PAD`, front-right, scale `PAD_SCALE`), not over the whole tile: relief and the volcano are flattened only around the pad, so the terrain stays. The capital is the exception (centred).
-- Tile **selection is turquoise** (`SELECT_COLOR`), never yellow/orange: warm colours blend into the gold territory rim.
+- Tile **selection is turquoise** (`SELECT_COLOR`), never yellow/orange: warm colours blend into the gold territory border.
 - Board `<Html>` labels need `zIndexRange={[20, 0]}` or they draw over modal sheets.
 - The board is **flat**: every tile is the same height (`TILE_H`). Terrain relief comes from textures, not elevation. There are **no terrain props** (no trees, cones, crystals; the user wants it to feel "real"); only buildings and camps sit on tiles. Shading depth comes from the normal map (`bump` in `SURFACE`). Mountains also get `relief`: a subdivided hex top displaced by the rock photo's brightness, fading flat at the rim (`reliefGeometry`). Use it for any terrain that should feel bumpy.
-- Owned territory must read **strongly**: wild land is pulled toward cold night (`WILD`), owned tops glow warm with a gold rim, and the border is a bright line over a soft halo.
+- Owned territory must read **strongly**: wild land is pulled toward cold night (`WILD`) and the territory border is a bright line over a soft halo. The user removed the warm glow on owned tops and the per-tile inner gold rim ("weird graphics", "unnecessary"); don't add tints/rims on owned tiles back.
 - Prefer cheap assets (≈100 KB textures, not 1K+ PBR sets); procedural where possible.
 
 ## Gotchas learned the hard way

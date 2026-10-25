@@ -20,6 +20,7 @@ import {
   recruit,
   releaseUnit,
   moveToBench,
+  callMuster,
   offerBlock,
   offerToAcademy,
   troopSize,
@@ -80,7 +81,9 @@ export function playTurn(s: GameState, style: BotStyle, mem: BotMemory): GameSta
     if (spot) s = placeBuilding(s, spot, id)
   }
 
-  // 4. Recruit to fill the troop; swap out weak units for much stronger ones.
+  // 4. Recruit (call a muster) when the troop has room or every few turns to look for upgrades,
+  //    then enlist to fill the troop; swap out weak units for much stronger ones.
+  if (!s.muster.length && (s.troop.length < troopSize(s) || s.turn % 3 === 0)) s = callMuster(s)
   for (const c of [...s.muster].sort((a, b) => score(b.unit) - score(a.unit))) {
     if (s.troop.length < troopSize(s)) {
       s = recruit(s, c.unit.uid)
