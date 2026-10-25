@@ -171,7 +171,7 @@ export const AFFINITY_DEFS: Record<Affinity, AffinityDef> = {
   weaponry: {
     id: 'weaponry', label: 'Weaponry', tier: 2, parents: ['magma'], site: ['mountains'], attune: 'mountains', materials: ['iron', 'stone'],
     academy: 'Weaponsmith', combat: { atkPct: T(0.1, 0.2, 0.35, 0.55) },
-    flavour: 'Blades hammered on stone. Every carrier simply hits harder.',
+    flavour: 'Blades hammered on stone. Every Weaponry unit simply hits harder.',
   },
   steel: {
     id: 'steel', label: 'Steel', tier: 2, parents: ['magma', 'water'], site: ['hills'], attune: 'hills', materials: ['iron', 'ember'],

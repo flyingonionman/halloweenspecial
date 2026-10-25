@@ -189,7 +189,7 @@ export const BUILDING_DEFS: Record<BuildingId, BuildingDef> = {
           name: d.academy,
           kind: 'research',
           affinity: a,
-          text: `Tier ${d.tier}. ${AFFINITY_LABEL[a]} level = academy level: more ${AFFINITY_LABEL[a]} citizens, stronger carriers and synergies.${recipe} Attunes to neighbouring ${TERRAIN_DEFS[d.attune].label.toLowerCase()}.`,
+          text: `Tier ${d.tier}. ${AFFINITY_LABEL[a]} level = academy level: more ${AFFINITY_LABEL[a]} citizens, stronger ${AFFINITY_LABEL[a]} units, bigger synergy multiplier.${recipe} Attunes to neighbouring ${TERRAIN_DEFS[d.attune].label.toLowerCase()}.`,
           allowed: d.site,
           unique: true,
           maxLevel: 4,

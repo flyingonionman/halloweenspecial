@@ -108,7 +108,7 @@ export function TroopPanel() {
               <span className="syn-name">
                 {syn.def.name}
                 <span className="syn-level" title="Affinity level (from academies)" data-help="affinity-level">
-                  Lv{syn.level} ×{CONFIG.affinity.levelMult[syn.level]}
+                  academy Lv{syn.level} ×{CONFIG.affinity.levelMult[syn.level]}
                 </span>
               </span>
               <span className="syn-points">

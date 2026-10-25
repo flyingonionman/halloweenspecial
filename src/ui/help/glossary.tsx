@@ -203,7 +203,7 @@ const STATIC: Record<string, Resolver> = {
   'kind:civic': () => ({ title: 'Civic buildings', kind: 'Building group', body: 'Food, gold and trade. The economy that everything else runs on.', see: ['building:farm', 'building:market', 'building:trading-post'] }),
   'kind:extractor': () => ({ title: 'Extractors', kind: 'Building group', body: 'Each one works a single terrain for its resource: 2 base, +1 per neighbouring tile of the same terrain (up to 3). Clusters of one terrain make the best mines.', see: ['adjacency', 'stores'] }),
   'kind:military': () => ({ title: 'Military buildings', kind: 'Building group', body: 'Permanent bonuses for every unit, whatever their affinities. This is the tempo line: strong without committing to synergies.', see: ['building:barracks', 'building:walls', 'building:armory', 'troop-bonus'] }),
-  'kind:research': () => ({ title: 'Academies', kind: 'Building group', body: `One per affinity, levels 1–${A.maxLevel}, built with that affinity’s resource. An academy’s level is the affinity’s level: more citizens with it, stronger carriers, and stronger synergies.`, see: ['affinity-level', 'attune', 'synergies'] }),
+  'kind:research': () => ({ title: 'Academies', kind: 'Building group', body: `One per affinity, levels 1–${A.maxLevel}, built with that affinity’s resource. An academy’s level is the affinity’s level: more citizens with it, stronger units of that affinity, and a bigger synergy multiplier.`, see: ['affinity-level', 'attune', 'synergies'] }),
   adjacency: () => ({
     title: 'Adjacency',
     body: 'Most buildings produce more with the right neighbours: extractors next to their terrain, barracks next to mines, walls next to quarries, farms next to lakes, academies next to their terrain. Where you build matters as much as what you build.',
@@ -250,21 +250,22 @@ const STATIC: Record<string, Resolver> = {
     title: 'Synergies',
     body: (
       <>
-        Affinity points across your troop add up. Each synergy has a <b>tier</b> (1–4, from points: {A.thresholds.join(' / ')}) and a <b>strength</b> (from that affinity’s academy level). Compound
-        synergies need two affinities and use the lower of each. Effects go to every unit carrying a component affinity, whatever its type.
+        Two separate numbers decide a synergy. Its <b>tier</b> (1–4) comes from your <b>troop</b>: affinity points across deployed units, unlocking at {A.thresholds.join(' / ')}. Its{' '}
+        <b>multiplier</b> comes from your <b>city</b>: the affinity’s academy level ({A.levelMult.map((m, i) => `Lv${i} ×${m}`).join(', ')}). Effect = the tier’s value × the multiplier.
+        Effects go to units that have the affinity, or to the whole troop for whole-troop affinities.
       </>
     ),
     see: ['synergy-tier', 'affinity-level', 'synergy:weaponry'],
   }),
-  'synergy-tier': () => ({ title: 'Synergy tier', body: `Lit diamonds = active tier. Tiers unlock at ${A.thresholds.join(' / ')} troop points of the affinity.`, see: ['synergies'] }),
+  'synergy-tier': () => ({ title: 'Synergy tier', body: `Lit diamonds = active tier, from your troop: tiers unlock at ${A.thresholds.join(' / ')} points of the affinity among deployed units. Separate from the affinity level, which comes from academies.`, see: ['synergies', 'affinity-level'] }),
   'affinity-level': () => ({
     title: 'Affinity level',
-    body: `An affinity’s level is its academy’s level (0–${A.maxLevel}). It multiplies that affinity’s synergies (${A.levelMult.map((m, i) => `Lv${i} ×${m}`).join(', ')}), gives carriers +${pct(A.combatBonusPerLevel)} HP and attack per level, and makes the affinity more common in births.`,
+    body: `From your city, not your troop: an affinity’s level is its academy’s level (0–${A.maxLevel}). It multiplies that affinity’s synergy (${A.levelMult.map((m, i) => `Lv${i} ×${m}`).join(', ')}), gives units with the affinity +${pct(A.combatBonusPerLevel)} HP and attack per level, and makes it more common in births.`,
     see: ['kind:research', 'attune'],
   }),
   attune: () => ({
     title: 'Attunement',
-    body: `Each tile of an academy’s terrain beside it adds 1 attunement (max 3): +${pct(A.combatBonusPerAttune)} HP and attack for carriers, and more births of that affinity.`,
+    body: `Each tile of an academy’s terrain beside it adds 1 attunement (max 3): +${pct(A.combatBonusPerAttune)} HP and attack for units with that affinity, and more births of that affinity.`,
     see: ['kind:research', 'adjacency'],
   }),
   level: () => ({
@@ -348,7 +349,7 @@ function affinity(a: Affinity): Resolver {
           {d.team && <p className="help-line">Its synergy empowers your whole troop.</p>}
         </>
       ),
-      live: open ? `Academy Lv${c.affinityLevels[a]} · attune ${c.attune[a]}.` : 'Locked.',
+      live: open ? `Academy Lv${c.affinityLevels[a]} · attunement ${c.attune[a]}.` : 'Locked.',
       see: [`synergy:${a}`, `building:${a}-academy`, ...d.parents.map((p) => `affinity:${p}`), ...kids.map((k) => `affinity:${k}`)],
     }
   }
