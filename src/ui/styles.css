@@ -788,6 +788,18 @@ small {
   gap: 6px;
 }
 
+
+  opacity: 0.4;
+}
+
+.bench-drop {
+  min-height: 40px;
+}
+
+.portrait-tile.dragging {
+  opacity: 0.4;
+}
+
 .slot-empty {
   border: 1px dashed var(--line);
   height: 82px;

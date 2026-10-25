@@ -15,6 +15,7 @@ import {
   moveToTroop,
   releaseRefund,
   releaseUnit,
+  swapUnits,
   synergyEffects,
   troopSize,
   type Effects,
@@ -41,6 +42,36 @@ export function TroopPanel() {
   // Grouped by affinity tier; within a tier, active synergies and bigger stacks first.
   const sorted = [...synergies].sort(
     (a, b) => AFFINITY_DEFS[a.def.id].tier - AFFINITY_DEFS[b.def.id].tier || b.tier - a.tier || b.points[0]! - a.points[0]!,
+  )
+
+  // Drag a tile onto another to swap places; onto an empty post or the bench to move it there.
+  const [dragging, setDragging] = useState<string | null>(null)
+  const dropZone = (target: string) => ({
+    onDragOver: (e: React.DragEvent) => dragging && e.preventDefault(),
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const uid = dragging
+      setDragging(null)
+      if (!uid) return
+      dispatch((st) => (target === 'troop' ? moveToTroop(st, uid) : target === 'bench' ? moveToBench(st, uid) : swapUnits(st, uid, target)))
+    },
+  })
+  const tile = (u: Unit) => (
+    <UnitTile
+      key={u.uid}
+      unit={u}
+      onOpen={() => setDetail(u.uid)}
+      className={dragging === u.uid ? 'dragging' : ''}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData('text/plain', u.uid)
+        setDragging(u.uid)
+      }}
+      onDragEnd={() => setDragging(null)}
+      {...dropZone(u.uid)}
+    />
   )
 
   if (detailUnit) {
@@ -142,30 +173,28 @@ export function TroopPanel() {
       <div className="portrait-grid">
         {Array.from({ length: size }, (_, i) => {
           const u = s.troop[i]
-          return u ? <UnitTile key={u.uid} unit={u} onOpen={() => setDetail(u.uid)} /> : <div key={`empty-${i}`} className="portrait-tile slot-empty">empty post</div>
+          return u ? tile(u) : <div key={`empty-${i}`} className="portrait-tile slot-empty" {...dropZone('troop')}>empty post</div>
         })}
       </div>
 
       <h3 className="section-title" data-help="bench">
         Bench <small>{s.bench.length}/{CONFIG.benchSize}</small>
       </h3>
-      {s.bench.length === 0 ? (
-        <p className="empty">Benched units stay with you between battles.</p>
-      ) : (
-        <div className="portrait-grid">
-          {s.bench.map((u) => (
-            <UnitTile key={u.uid} unit={u} onOpen={() => setDetail(u.uid)} />
-          ))}
-        </div>
-      )}
+      <div className="bench-drop" {...dropZone('bench')}>
+        {s.bench.length === 0 ? (
+          <p className="empty">Benched units stay with you between battles.</p>
+        ) : (
+          <div className="portrait-grid">{s.bench.map(tile)}</div>
+        )}
+      </div>
     </div>
   )
 }
 
 /** A unit as a face tile: portrait, name, rarity + type, level and veteran stars. */
-function UnitTile({ unit, onOpen }: { unit: Unit; onOpen: () => void }) {
+function UnitTile({ unit, onOpen, className = '', ...drag }: { unit: Unit; onOpen: () => void } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
-    <button className="portrait-tile" onClick={onOpen} title={unit.name}>
+    <button {...drag} className={`portrait-tile ${className}`} onClick={onOpen} title={unit.name}>
       <Portrait unit={unit} size={72} />
       <span className="pt-name">{unit.name.split(' ').slice(0, 2).join(' ')}</span>
       <span className="pt-meta">

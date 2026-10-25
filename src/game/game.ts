@@ -471,6 +471,22 @@ export function moveToTroop(state: GameState, uid: string, swapWith?: string): G
   })
 }
 
+/** Swaps two owned units' places (within or across troop and bench). */
+export function swapUnits(state: GameState, a: string, b: string): GameState {
+  if (!managing(state) || a === b || !findOwned(state, a) || !findOwned(state, b)) return state
+  return produce(state, (s) => {
+    const at = (uid: string) => {
+      const list = s.troop.some((u) => u.uid === uid) ? s.troop : s.bench
+      return [list, list.findIndex((u) => u.uid === uid)] as const
+    }
+    const [la, ia] = at(a)
+    const [lb, ib] = at(b)
+    const ua = la[ia]!
+    la[ia] = lb[ib]!
+    lb[ib] = ua
+  })
+}
+
 export function canUpgrade(s: GameState, uid: string): boolean {
   const u = findOwned(s, uid)
   if (!u || !managing(s)) return false
