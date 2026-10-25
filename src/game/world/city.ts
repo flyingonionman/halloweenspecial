@@ -1,6 +1,6 @@
 /**
  * Evaluates the whole territory: per-tile outputs (with adjacency), per-turn
- * yields, growth, births, the troop-wide combat bonuses, and affinity levels.
+ * yields (before morale), the troop-wide combat bonuses, and affinity levels.
  */
 import { CONFIG } from '../config'
 import { AFFINITIES, type Affinity } from '../affinities'
@@ -70,9 +70,6 @@ export function tileOutput(map: WorldMap, tile: Tile): TileOutput {
 
 export interface CityStats {
   yields: Record<ResourceId, number>
-  /** Fractional growth per turn, e.g. 0.18 = +18%. */
-  growth: number
-  births: number
   atkPct: number
   hpPct: number
   defPct: number
@@ -106,11 +103,8 @@ export function evaluateCity(map: WorldMap): CityStats {
   }
 
   const yields = Object.fromEntries(RESOURCES.map((r) => [r, total[r] ?? 0])) as Record<ResourceId, number>
-  const { growthBase, growthPerFood, maxGrowth } = CONFIG.economy
   return {
     yields,
-    growth: Math.min(maxGrowth, growthBase + growthPerFood * yields.food + (total.growth ?? 0)),
-    births: total.births ?? 0,
     atkPct: total.atkPct ?? 0,
     hpPct: total.hpPct ?? 0,
     defPct: total.defPct ?? 0,

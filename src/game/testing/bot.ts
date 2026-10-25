@@ -73,8 +73,8 @@ export function playTurn(s: GameState, style: BotStyle, mem: BotMemory): GameSta
       }
     }
   }
-  for (const id of ['barracks', 'walls', 'armory', 'housing'] as BuildingId[]) {
-    if (style === 'synergy' && id !== 'housing') continue
+  for (const id of ['barracks', 'walls', 'armory', 'market'] as BuildingId[]) {
+    if (style === 'synergy' && id !== 'market') continue
     const spot = bare()[0]
     if (spot && !buildBlock(s, spot, id)) s = placeBuilding(s, spot, id)
   }

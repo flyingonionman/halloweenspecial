@@ -1,10 +1,10 @@
 /**
  * Balance probe (`npm run balance`): scripted bots play N seeded runs per
- * species and report round win rates, full clears, and average glory.
+ * species and report round win rates, full clears, population and land.
  * Not part of `npm test`.
  */
 import { it } from 'vitest'
-import { CONFIG, chooseSpecies, endTurn, finishBattle, glory, newGame, ownedTiles, SPECIES_IDS } from './index'
+import { CONFIG, chooseSpecies, endTurn, finishBattle, newGame, ownedTiles, SPECIES_IDS } from './index'
 import { playTurn, type BotStyle } from './testing/bot'
 
 declare const process: { env: Record<string, string | undefined> }
@@ -17,7 +17,6 @@ function run(style: BotStyle, species: (typeof SPECIES_IDS)[number]) {
   const wins = Array(CONFIG.rounds).fill(0)
   const played = Array(CONFIG.rounds).fill(0)
   let clears = 0
-  let totalGlory = 0
   let pop = 0
   let tiles = 0
   for (let seed = 1; seed <= RUNS; seed++) {
@@ -33,14 +32,12 @@ function run(style: BotStyle, species: (typeof SPECIES_IDS)[number]) {
       } else s = endTurn(playTurn(s, style, mem))
     }
     if (s.victory) clears++
-    totalGlory += glory(s)
     pop += Math.log10(s.population)
     tiles += ownedTiles(s.map).length
   }
   return {
     ...Object.fromEntries(played.map((n, r) => [`R${r + 1}`, n ? `${Math.round((wins[r] / n) * 100)}%` : '-'])),
     clears: `${Math.round((clears / RUNS) * 100)}%`,
-    glory: Math.round(totalGlory / RUNS),
     pop: `10^${(pop / RUNS).toFixed(1)}`,
     tiles: Math.round(tiles / RUNS),
   }

@@ -15,7 +15,6 @@ export const CONFIG = {
   start: {
     population: 100,
     gold: 12,
-    hp: 100,
     /** Starting stock of the home biome's resource. */
     homeResource: 4,
   },
@@ -41,17 +40,22 @@ export const CONFIG = {
   rarityBaseWeight: { common: 100, uncommon: 45, rare: 22, epic: 10, legendary: 4 } satisfies Record<Rarity, number>,
 
   /**
-   * A newly unlocked rarity starts at `floor` of its weight and reaches full
-   * weight once population is `span` orders of magnitude past the threshold.
+   * A newly unlocked rarity starts at `floor` of its weight and ramps (log scale)
+   * to full weight as population climbs toward the *next* rarity's threshold:
+   * every soul between 100 and 1,000 makes uncommon citizens more likely.
+   * Legendary, having no next threshold, ramps over `lastSpan` orders of magnitude.
    */
-  rarityRamp: { floor: 0.12, span: 1 },
+  rarityRamp: { floor: 0.12, lastSpan: 1 },
 
   /** Rarities two or more steps below your current tier fade out by this factor per step. */
   rarityObsolescence: 0.4,
 
   /** The "generation gap": stat multiplier per rarity. */
   rarityStatMult: { common: 1, uncommon: 1.5, rare: 2.3, epic: 3.6, legendary: 5.5 } satisfies Record<Rarity, number>,
+  /** Gold scale for unit upgrades. */
   rarityPrice: { common: 2, uncommon: 3, rare: 5, epic: 8, legendary: 12 } satisfies Record<Rarity, number>,
+  /** Morale to recruit a citizen, by rarity (adjusted by quality). */
+  recruitMorale: { common: 8, uncommon: 11, rare: 15, epic: 20, legendary: 26 } satisfies Record<Rarity, number>,
 
   quality: { min: 0.85, max: 1.15 },
 
@@ -60,8 +64,8 @@ export const CONFIG = {
     pointsByRarity: { common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5 } satisfies Record<Rarity, number>,
     /** Chance a unit with 2+ points splits them across two affinities. */
     dualChance: 0.5,
-    /** Troop points needed for synergy tiers 1–4. */
-    thresholds: [2, 4, 6, 9],
+    /** Troop points needed for synergy tiers 1–4. The top tiers demand a committed troop. */
+    thresholds: [2, 5, 9, 15],
     /** Synergy effect multiplier by affinity level 0–4 (academy level). */
     levelMult: [0.6, 1, 1.35, 1.7, 2.1],
     maxLevel: 4,
@@ -86,16 +90,36 @@ export const CONFIG = {
     maxDiscount: 0.6,
   },
 
-  /** Fraction of purchase price refunded when releasing a unit. */
+  /** Fraction of a unit's recruit morale given back when releasing it. */
   releaseRefund: 0.4,
 
   muster: {
     /** Turns a newborn citizen waits to be recruited before moving on. */
     lifespan: 3,
+    /** Citizens born per turn = base + perOrder × log10(population / 100). */
+    births: { base: 2, perOrder: 1 },
+    /** Rerolling the muster costs base + step × rerolls already made this turn. */
+    reroll: { base: 20, step: 10 },
+  },
+
+  /**
+   * Morale (0–max): spent to recruit and to reroll the muster, and it scales
+   * every field's output from `outputAtZero` (empty) to `outputAtMax` (full).
+   */
+  morale: {
+    start: 60,
+    max: 100,
+    regen: 8,
+    outputAtZero: 0.5,
+    outputAtMax: 1.5,
+    battleWin: 25,
+    raidWin: 10,
+    raidLoss: -10,
+    festival: 20,
   },
 
   economy: {
-    /** Population × (1 + base + perFood × food + building growth) each turn. */
+    /** Population × (1 + base + perFood × food) each turn. */
     growthBase: 0.1,
     growthPerFood: 0.02,
     maxGrowth: 0.6,
@@ -123,9 +147,6 @@ export const CONFIG = {
     best: 2,
   },
 
-  /** HP damage on a round loss = base + perRound * round + perSurvivor * enemy survivors. */
-  damage: { base: 6, perRound: 2, perSurvivor: 4 },
-
   rewards: {
     /** Gold for winning a round battle = base + perRound × round. */
     battleGold: { base: 6, perRound: 4 },
@@ -133,12 +154,9 @@ export const CONFIG = {
     camp: { base: 3, perStrength: 3, perRound: 2, resPerStrength: 3 },
   },
 
-  /** Glory = development × 2^wins × (victoryMult if all rounds won). */
-  glory: { perLog10Pop: 10, perTile: 1, perBuildingLevel: 1, victoryMult: 2 },
-
   /**
    * Round opponents (ghosts). An average player is roughly at
-   * 100 × 1.2^(10·round + 5) population mid-round.
+   * 100 × 1.2^(10·round + 5) population mid-round. Losing a round battle ends the run.
    */
   opponent: {
     populationByRound: [200, 1_500, 10_000, 60_000, 400_000],

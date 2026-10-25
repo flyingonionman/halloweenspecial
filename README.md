@@ -15,7 +15,6 @@ Pick a species, then play 5 rounds. Each round is 10 turns of city-building foll
 - **Each turn** you can build, claim tiles, trade and recruit as much as you can afford. You also get **one deed**: a safe task (forage, caravan, festival, census, prospect, drill) *or* a raid on an NPC camp on your border. A raid is real combat with permadeath. If you win, you get loot and the tile.
 - **The round's opponent is known from turn 1** (Scout tab), so you can plan for them. Opponents are *ghost snapshots* (`GhostSnapshot` in `ai.ts`). For now they're AI-generated. Async PvP means implementing `GhostSource` against a backend.
 - **Battles:** units that die are gone. A loss costs vitality, and 0 vitality ends the run.
-- **Glory** = development × 2^wins, doubled for a flawless run. Greedy development only pays off if you keep winning.
 
 ## The land decides
 

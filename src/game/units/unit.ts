@@ -62,8 +62,9 @@ export function unitPower(u: Unit): number {
   return Math.round(Math.sqrt(dps * ehp))
 }
 
-export function purchasePrice(u: Unit): number {
-  return Math.max(1, Math.round(CONFIG.rarityPrice[u.rarity] * (0.85 + (u.quality - 1) * 2)))
+/** Morale to recruit: base by rarity, a little more for good quality rolls. */
+export function recruitCost(u: Unit): number {
+  return Math.max(1, Math.round(CONFIG.recruitMorale[u.rarity] * (0.85 + (u.quality - 1) * 2)))
 }
 
 export function upgradeDiscount(u: Unit): number {
@@ -78,6 +79,7 @@ export function upgradeCost(u: Unit, mult = 1): number | null {
   return Math.max(1, Math.round(raw * (1 - upgradeDiscount(u)) * mult))
 }
 
+/** Morale given back when you let a unit go. */
 export function releaseRefund(u: Unit): number {
-  return Math.floor(purchasePrice(u) * CONFIG.releaseRefund)
+  return Math.floor(recruitCost(u) * CONFIG.releaseRefund)
 }

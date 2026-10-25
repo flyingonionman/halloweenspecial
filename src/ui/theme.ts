@@ -95,7 +95,6 @@ export const SPECIES_GLYPH = {
   human: '♛',
   ork: '☠',
   goblin: '❀',
-  feline: '✿',
   dwarf: '⚒',
   elf: '❧',
   golem: '◈',

@@ -19,17 +19,19 @@ export function UnitCard({ unit, footer, compact, dim }: Props) {
       title={`${type.label} (${type.damage} damage) · ${type.abilityLabel}: ${type.abilityText}`}
     >
       <div className="uc-head">
-        <span className="uc-glyph" aria-hidden>
+        <span className="uc-glyph" aria-hidden data-help={`type:${unit.type}`}>
           {TYPE_GLYPH[unit.type]}
         </span>
         <div className="uc-id">
           <div className="uc-name">{unit.name}</div>
           <div className="uc-tags">
-            <span className="uc-rarity">{unit.rarity}</span>
-            <span>{type.label}</span>
+            <span className="uc-rarity" data-help={`rarity:${unit.rarity}`}>
+              {unit.rarity}
+            </span>
+            <span data-help={`type:${unit.type}`}>{type.label}</span>
           </div>
         </div>
-        <div className="uc-level" title={`Level ${unit.level}${unit.battlesSurvived ? ` · survived ${unit.battlesSurvived}` : ''}`}>
+        <div className="uc-level" data-help={unit.battlesSurvived > 0 ? 'veteran' : 'level'} title={`Level ${unit.level}${unit.battlesSurvived ? ` · survived ${unit.battlesSurvived}` : ''}`}>
           <span>Lv</span>
           {unit.level}
           {unit.battlesSurvived > 0 && <i className="uc-vet">{'★'.repeat(Math.min(3, unit.battlesSurvived))}</i>}
@@ -54,7 +56,7 @@ export function AffinityChips({ points }: { points: AffinityPoints }) {
   return (
     <div className="aff-chips">
       {affinityEntries(points).map(([a, n]) => (
-        <span key={a} className="aff-chip" style={{ '--aff': AFFINITY_COLOR[a] } as React.CSSProperties}>
+        <span key={a} className="aff-chip" data-help={`affinity:${a}`} style={{ '--aff': AFFINITY_COLOR[a] } as React.CSSProperties}>
           <i>{AFFINITY_GLYPH[a]}</i>
           {AFFINITY_LABEL[a]}
           <b>{n}</b>
@@ -66,7 +68,7 @@ export function AffinityChips({ points }: { points: AffinityPoints }) {
 
 function Stat({ k, v, strong }: { k: string; v: number | string; strong?: boolean }) {
   return (
-    <div className={strong ? 'strong' : ''}>
+    <div className={strong ? 'strong' : ''} data-help={`stat:${k.toLowerCase()}`}>
       <dt>{k}</dt>
       <dd>{v}</dd>
     </div>

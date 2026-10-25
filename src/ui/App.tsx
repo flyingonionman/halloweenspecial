@@ -1,9 +1,12 @@
-import { CONFIG, SPECIES, canEndTurn, civTier, endTurn, glory, isLastTurn } from '../game'
+import { CONFIG, SPECIES, canEndTurn, civTier, endTurn, isLastTurn } from '../game'
 import { useGame, useStore } from './useGame'
 import { SpeciesScreen } from './screens/SpeciesScreen'
 import { TurnScreen } from './screens/TurnScreen'
 import { BattleScreen } from './screens/BattleScreen'
 import { OverScreen } from './screens/OverScreen'
+import { HelpLayer } from './help/HelpLayer'
+import { Lexicon } from './lexicon/Lexicon'
+import { useEffect, useRef, useState } from 'react'
 import { RARITY_COLOR, RESOURCE_COLOR, RESOURCE_GLYPH, SPECIES_GLYPH, fmtPop } from './theme'
 
 export function App() {
@@ -17,6 +20,7 @@ export function App() {
         {s.phase === 'battle' && <BattleScreen />}
         {s.phase === 'over' && <OverScreen />}
       </main>
+      <HelpLayer />
     </div>
   )
 }
@@ -36,7 +40,7 @@ function TopBar() {
 
       {s.phase !== 'species' && (
         <>
-          <ol className="timeline" aria-label="Rounds and turns">
+          <ol className="timeline" aria-label="Rounds and turns" data-help="timeline">
             {Array.from({ length: CONFIG.rounds }, (_, r) => (
               <li key={r} className={`tl-round ${r < s.round ? 'past' : r === s.round ? 'now' : ''}`}>
                 {r === s.round && s.phase !== 'over' ? (
@@ -60,44 +64,40 @@ function TopBar() {
 
           <dl className="vitals">
             {s.species && (
-              <div title={SPECIES[s.species].text}>
+              <div title={SPECIES[s.species].text} data-help="people">
                 <dt>People</dt>
                 <dd>
                   {SPECIES_GLYPH[s.species]} {SPECIES[s.species].name}
                 </dd>
               </div>
             )}
-            <div>
+            <div data-help="turn">
               <dt>Turn</dt>
               <dd>
                 {s.round + 1}·{s.turn + 1}
                 <small>/{CONFIG.turnsPerRound}</small>
               </dd>
             </div>
-            <div>
+            <div data-help="population">
               <dt>Population</dt>
               <dd>{fmtPop(s.population)}</dd>
             </div>
-            <div>
+            <div data-help="tier">
               <dt>Tier</dt>
               <dd style={{ color: RARITY_COLOR[tier] }}>{tier}</dd>
             </div>
-            <div>
+            <div data-help="gold">
               <dt>Gold</dt>
               <dd style={{ color: RESOURCE_COLOR.gold }}>
                 {RESOURCE_GLYPH.gold} {s.stock.gold}
               </dd>
             </div>
-            <div>
-              <dt>Vitality</dt>
-              <dd className={s.hp <= s.maxHp * 0.3 ? 'danger' : ''}>
-                {s.hp}
-                <small>/{s.maxHp}</small>
+            <div data-help="morale">
+              <dt>Morale</dt>
+              <dd className={s.morale < 25 ? 'danger' : ''} style={{ color: s.morale >= 25 ? '#9fd3ea' : undefined }}>
+                ✦ {s.morale}
+                <small>/{CONFIG.morale.max}</small>
               </dd>
-            </div>
-            <div title="Development × 2^wins. Doubled if you win every round.">
-              <dt>Glory</dt>
-              <dd className="gold">{glory(s)}</dd>
             </div>
           </dl>
         </>
@@ -107,6 +107,7 @@ function TopBar() {
         {s.phase === 'turn' && (
           <button
             className={`btn ${last ? 'btn-war' : 'btn-primary'}`}
+            data-help="end-turn"
             disabled={!canEndTurn(s)}
             title={last && s.troop.length === 0 ? 'Your troop is empty: marching now forfeits the battle' : undefined}
             onClick={() =>
@@ -116,12 +117,55 @@ function TopBar() {
             {last ? 'March to battle' : 'End turn'}
           </button>
         )}
-        {s.phase !== 'species' && (
-          <button className="btn btn-ghost" onClick={() => confirm('Abandon this run and start over?') && store.reset()}>
-            New run
-          </button>
-        )}
+        <SettingsMenu canReset={s.phase !== 'species'} onReset={() => confirm('Abandon this run and start over?') && store.reset()} />
       </div>
     </header>
+  )
+}
+
+function SettingsMenu({ canReset, onReset }: { canReset: boolean; onReset: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [lexicon, setLexicon] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  return (
+    <div className="settings" ref={ref}>
+      <button className={`btn btn-ghost settings-btn ${open ? 'on' : ''}`} aria-label="Settings" aria-expanded={open} onClick={() => setOpen(!open)}>
+        ⚙
+      </button>
+      {open && (
+        <div className="settings-menu" role="menu">
+          <button
+            role="menuitem"
+            onClick={() => {
+              setLexicon(true)
+              setOpen(false)
+            }}
+          >
+            <span>📖</span> Lexicon
+            <small>Every affinity, building and unit</small>
+          </button>
+          {canReset && (
+            <button
+              role="menuitem"
+              onClick={() => {
+                setOpen(false)
+                onReset()
+              }}
+            >
+              <span>↺</span> New run
+              <small>Abandon this run</small>
+            </button>
+          )}
+        </div>
+      )}
+      {lexicon && <Lexicon onClose={() => setLexicon(false)} />}
+    </div>
   )
 }

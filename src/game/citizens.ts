@@ -7,11 +7,12 @@ import { AFFINITIES, type Affinity, type AffinityPoints } from './affinities'
 import { rarityOdds } from './population'
 import { speciesMods, type SpeciesId } from './species'
 import { UNIT_TYPES, isRanged } from './units/types'
-import { createUnit, purchasePrice, type Unit, type UnitRoll } from './units/unit'
+import { createUnit, recruitCost, type Unit, type UnitRoll } from './units/unit'
 import type { Rng } from './rng'
 
 export interface Citizen {
   unit: Unit
+  /** Morale to recruit. */
   price: number
   /** Absolute turn index after which this citizen leaves the muster. */
   leavesAfter: number
@@ -65,12 +66,16 @@ export function rollCitizen(ctx: BirthContext, rng: Rng): UnitRoll {
 export function birthCitizens(ctx: BirthContext, count: number, rng: Rng, makeUid: () => string, leavesAfter: number): Citizen[] {
   return Array.from({ length: count }, () => {
     const unit = createUnit(makeUid(), rollCitizen(ctx, rng), rng)
-    return { unit, price: purchasePrice(unit), leavesAfter }
+    return { unit, price: recruitCost(unit), leavesAfter }
   })
 }
 
-export const birthsPerTurn = (cityBirths: number, species: SpeciesId | null) =>
-  Math.round(cityBirths * (speciesMods(species).birthsMult ?? 1))
+/** Citizens born each turn: grows by one per order of magnitude of population. */
+export function birthsPerTurn(population: number, species: SpeciesId | null): number {
+  const b = CONFIG.muster.births
+  const base = b.base + b.perOrder * Math.max(0, Math.floor(Math.log10(population / CONFIG.start.population)))
+  return Math.round(base * (speciesMods(species).birthsMult ?? 1))
+}
 
 /** Normalized affinity odds for display. */
 export function affinityOdds(weights: Record<Affinity, number>): Record<Affinity, number> {

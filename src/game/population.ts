@@ -9,6 +9,26 @@ export function civTier(population: number): Rarity {
   return tier
 }
 
+/**
+ * 0→1: how far population has climbed from this rarity's threshold toward the
+ * next rarity's (log scale). Drives how strongly the rarity has ramped in.
+ */
+export function rampProgress(r: Rarity, population: number): number {
+  const i = RARITIES.indexOf(r)
+  const from = CONFIG.rarityThresholds[r]
+  if (population < from || from === 0) return population >= from ? 1 : 0
+  const next = RARITIES[i + 1]
+  const span = next ? Math.log10(CONFIG.rarityThresholds[next] / from) : CONFIG.rarityRamp.lastSpan
+  return Math.min(1, Math.log10(population / from) / span)
+}
+
+/** The current tier, the next unlock, and how far along the climb toward it you are. */
+export function tierProgress(population: number) {
+  const tier = civTier(population)
+  const next = RARITIES[RARITIES.indexOf(tier) + 1] ?? null
+  return { tier, next, nextAt: next ? CONFIG.rarityThresholds[next] : null, progress: rampProgress(tier, population) }
+}
+
 /** Normalized probability of each rarity rolling (before a Dragon's rarity shift). */
 export function rarityOdds(population: number, species: SpeciesId | null = null): Record<Rarity, number> {
   const tierIdx = RARITIES.indexOf(civTier(population))
@@ -17,10 +37,7 @@ export function rarityOdds(population: number, species: SpeciesId | null = null)
     const threshold = CONFIG.rarityThresholds[r]
     if (population < threshold) return 0
     let w = CONFIG.rarityBaseWeight[r]
-    if (threshold > 0) {
-      const progress = Math.log10(population / threshold) / CONFIG.rarityRamp.span
-      w *= Math.min(1, CONFIG.rarityRamp.floor + (1 - CONFIG.rarityRamp.floor) * progress)
-    }
+    if (threshold > 0) w *= Math.min(1, CONFIG.rarityRamp.floor + (1 - CONFIG.rarityRamp.floor) * rampProgress(r, population))
     const stepsBelow = tierIdx - i
     if (stepsBelow >= 2) w *= Math.pow(CONFIG.rarityObsolescence, stepsBelow - 1)
     if (i > 0) w *= rareMult

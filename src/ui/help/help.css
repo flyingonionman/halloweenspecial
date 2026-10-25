@@ -1,0 +1,153 @@
+/* ══ Click help ═════════════════════════════════════════════════ */
+
+.help-pop {
+  position: fixed;
+  z-index: 200;
+  width: min(340px, calc(100vw - 24px));
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  background: linear-gradient(170deg, #241c17, #17120f 70%);
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--ember);
+  box-shadow:
+    0 18px 50px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(0, 0, 0, 0.4);
+  padding: 12px 14px 12px;
+  animation: help-in 0.14s ease-out both;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+@keyframes help-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+
+.help-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.help-head h4 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: normal;
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.help-kind {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ember-hot);
+}
+
+.help-close,
+.help-back {
+  background: none;
+  border: none;
+  color: var(--bone-faint);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.help-close:hover,
+.help-back:hover {
+  color: var(--bone);
+}
+
+.help-body {
+  color: var(--bone-dim);
+}
+
+.help-body b {
+  color: var(--bone);
+}
+
+.help-line {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+}
+
+.help-live {
+  margin-top: 10px;
+  padding: 6px 9px;
+  border-left: 2px solid var(--gold);
+  background: rgba(233, 180, 76, 0.07);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--bone);
+}
+
+.help-see {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.help-see span {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--bone-faint);
+  margin-right: 2px;
+}
+
+.help-see button {
+  border: 1px solid var(--line);
+  background: var(--ink-3);
+  color: var(--bone);
+  font-size: 12px;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+
+.help-see button:hover {
+  border-color: var(--ember);
+}
+
+.help-hint {
+  margin: 18px 0 0;
+  font-size: 11.5px;
+  color: var(--bone-faint);
+  font-style: italic;
+}
+
+/* Gauntlet cursor: bronze by default, gold over anything clickable. Hotspot is the fingertip. */
+html,
+body,
+canvas {
+  cursor:
+    url('/cursors/gauntlet.svg') 3 2,
+    auto;
+}
+
+button:not(:disabled),
+a,
+select,
+summary,
+[role='button'],
+[data-help]:not(.buildbar):not(.build-panel) {
+  cursor:
+    url('/cursors/gauntlet-hover.svg') 3 2,
+    pointer;
+}
+
+/* Help-able text (not buttons, which keep their own click) underlines on hover. */
+[data-help]:not(button):not(.buildbar):not(.build-panel):hover {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--ember-hot) 70%, transparent);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}

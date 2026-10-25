@@ -5,14 +5,14 @@
  *
  * Kinds:
  *   extractor — turns a terrain into its resource (replaces the tile's raw yield)
- *   civic     — growth, gold, births, trade
+ *   civic     — food, gold, trade
  *   military  — permanent combat bonuses for every unit (the tempo line)
  *   research  — one academy per affinity; its level is that affinity's level
  */
 import { AFFINITIES, AFFINITY_LABEL, type Affinity } from '../affinities'
 import { AFFINITY_RESOURCE, AFFINITY_TERRAIN, TERRAIN_DEFS, type Cost, type ResourceId, type TerrainId } from './terrain'
 
-export type OutputKey = ResourceId | 'growth' | 'births' | 'atkPct' | 'hpPct' | 'defPct' | 'trade' | 'attune'
+export type OutputKey = ResourceId | 'atkPct' | 'hpPct' | 'defPct' | 'trade' | 'attune'
 export type Outputs = Partial<Record<OutputKey, number>>
 
 const EXTRACTORS = [
@@ -28,7 +28,7 @@ const EXTRACTORS = [
 
 type ExtractorId = (typeof EXTRACTORS)[number][0]
 export type AcademyId = `${Affinity}-academy`
-export type BuildingId = 'capital' | 'farm' | 'housing' | 'market' | 'trading-post' | 'barracks' | 'walls' | 'armory' | ExtractorId | AcademyId
+export type BuildingId = 'capital' | 'farm' | 'market' | 'trading-post' | 'barracks' | 'walls' | 'armory' | ExtractorId | AcademyId
 
 export type BuildingKind = 'capital' | 'extractor' | 'civic' | 'military' | 'research'
 
@@ -80,7 +80,7 @@ export const BUILDING_DEFS: Record<BuildingId, BuildingDef> = {
     unique: true,
     maxLevel: 1,
     cost: flat({}),
-    base: { food: 2, gold: 4, births: 2 },
+    base: { food: 2, gold: 4 },
     adjacency: [],
   },
   farm: {
@@ -97,28 +97,17 @@ export const BUILDING_DEFS: Record<BuildingId, BuildingDef> = {
       { per: { building: 'farm' }, add: { food: 1 }, cap: 2 },
     ],
   },
-  housing: {
-    id: 'housing',
-    name: 'Housing',
-    kind: 'civic',
-    text: 'More citizens born each turn, faster growth.',
-    allowed: 'any',
-    maxLevel: 1,
-    cost: flat({ gold: 4, timber: 2 }),
-    base: { births: 1, growth: 0.03 },
-    adjacency: [{ per: { building: 'farm' }, add: { growth: 0.02 }, cap: 3 }],
-  },
   market: {
     id: 'market',
     name: 'Market',
     kind: 'civic',
-    text: 'Gold every turn.',
+    text: 'Gold every turn. Sells the harvest of neighbouring farms.',
     allowed: 'any',
     maxLevel: 1,
     cost: flat({ gold: 5, timber: 2 }),
     base: { gold: 2 },
     adjacency: [
-      { per: { building: 'housing' }, add: { gold: 1 }, cap: 3 },
+      { per: { building: 'farm' }, add: { gold: 1 }, cap: 3 },
       { per: { building: 'capital' }, add: { gold: 1 }, cap: 1 },
     ],
   },

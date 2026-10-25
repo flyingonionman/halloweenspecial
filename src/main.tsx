@@ -5,6 +5,9 @@ import { GameContext } from './ui/useGame'
 import { App } from './ui/App'
 import './ui/styles.css'
 import './ui/turn.css'
+import './ui/help/help.css'
+import './ui/sheets.css'
+import './ui/panels.css'
 
 const seedParam = new URLSearchParams(location.search).get('seed')
 const store = createGameStore(seedParam ? Number(seedParam) : undefined)

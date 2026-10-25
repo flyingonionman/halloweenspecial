@@ -5,6 +5,10 @@
  *
  * Flow: pick a species → 5 rounds × (10 turns of city-building → 1 battle vs a ghost).
  * Each turn: build, claim, trade, recruit freely; plus one deed (a task or a camp raid).
+ * Round battles are sudden elimination: lose one and the run is over.
+ *
+ * Morale is both currency (recruiting, rerolling the muster) and productivity
+ * (it scales every field's output), so recruiting hard weakens the economy.
  */
 import { CONFIG } from './config'
 import { Rng } from './rng'
@@ -25,14 +29,14 @@ export type Phase = 'species' | 'turn' | 'battle' | 'over'
 export interface BattleOutcome {
   won: boolean
   draw: boolean
-  /** Vitality lost (round battles only). */
-  damage: number
   fallen: Unit[]
   /** Elves: fallen units come back. */
   fallenReturn: boolean
   enemySurvivors: number
   gold: number
   loot: Cost
+  /** Change to morale when the battle is resolved. */
+  morale: number
   /** Skirmish: the camp tile claimed on victory. */
   claimed: Hex | null
 }
@@ -60,24 +64,24 @@ export interface GameState {
   round: number
   /** 0-based within the round. */
   turn: number
-  hp: number
-  maxHp: number
   species: SpeciesId | null
   population: number
   stock: Stock
+  /** 0–CONFIG.morale.max. */
+  morale: number
   map: WorldMap
   muster: Citizen[]
   troop: Unit[]
   bench: Unit[]
   tasks: Task[]
   deedDone: boolean
-  /** Extra growth for the current turn (festival). */
-  growthBoost: number
+  /** Muster rerolls made this turn (each costs more). */
+  rerolls: number
   /** This round's opponent, known from turn 1. */
   ghost: GhostSnapshot | null
   battle: Battle | null
   victory: boolean
-  history: { round: number; won: boolean; damage: number; opponent: string }[]
+  history: { round: number; won: boolean; opponent: string }[]
   log: LogEntry[]
 }
 
@@ -112,6 +116,29 @@ export function city(s: Pick<GameState, 'map'>): CityStats {
   return c
 }
 
+// ── Morale & the economy ──────────────────────────────────────────────
+
+const clampMorale = (v: number) => Math.max(0, Math.min(CONFIG.morale.max, v))
+
+/** Field output multiplier from morale: outputAtZero at 0, outputAtMax at full. */
+export function moraleMult(morale: number): number {
+  const m = CONFIG.morale
+  return m.outputAtZero + (m.outputAtMax - m.outputAtZero) * (morale / m.max)
+}
+
+/** What your fields actually produce this turn: city yields × morale. */
+export function effectiveYields(s: Pick<GameState, 'map' | 'morale'>): Record<keyof CityStats['yields'], number> {
+  const mult = moraleMult(s.morale)
+  const raw = city(s).yields
+  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, Math.round(v * mult)])) as Record<keyof CityStats['yields'], number>
+}
+
+/** Fractional population growth this turn, driven by (morale-adjusted) food. */
+export function growthRate(s: Pick<GameState, 'map' | 'morale'>): number {
+  const { growthBase, growthPerFood, maxGrowth } = CONFIG.economy
+  return Math.min(maxGrowth, growthBase + growthPerFood * effectiveYields(s).food)
+}
+
 export function birthContext(s: GameState): BirthContext {
   const c = city(s)
   return { population: s.population, species: s.species, affinityWeights: affinityBirthWeights(c), affinityLevels: c.affinityLevels }
@@ -129,18 +156,17 @@ export function newGame(seed: number = Date.now() >>> 0): GameState {
     phase: 'species',
     round: 0,
     turn: 0,
-    hp: CONFIG.start.hp,
-    maxHp: CONFIG.start.hp,
     species: null,
     population: CONFIG.start.population,
     stock: emptyStock(),
+    morale: CONFIG.morale.start,
     map,
     muster: [],
     troop: [],
     bench: [],
     tasks: [],
     deedDone: false,
-    growthBoost: 0,
+    rerolls: 0,
     ghost: null,
     battle: null,
     victory: false,
@@ -153,7 +179,6 @@ export function chooseSpecies(state: GameState, id: SpeciesId): GameState {
   if (state.phase !== 'species' || !SPECIES[id]) return state
   return produce(state, (s, ctx) => {
     s.species = id
-    s.maxHp = s.hp = speciesMods(id).startHp ?? CONFIG.start.hp
     s.stock.gold = CONFIG.start.gold
     const home = TERRAIN_DEFS[s.map.homeBiome].resource
     if (home !== 'food' && home !== 'gold') s.stock[home] += CONFIG.start.homeResource
@@ -172,7 +197,7 @@ function startRound(s: GameState, ctx: Ctx) {
 
 function startTurn(s: GameState, ctx: Ctx) {
   s.deedDone = false
-  s.growthBoost = 0
+  s.rerolls = 0
   s.tasks = rollTasks(s.map, s.round, s.turn, ctx.rng)
 }
 
@@ -300,7 +325,7 @@ export function canRecruit(s: GameState, uid: string): boolean {
   return (
     s.phase === 'turn' &&
     !!c &&
-    s.stock.gold >= c.price &&
+    s.morale >= c.price &&
     (s.troop.length < troopSize(s) || s.bench.length < CONFIG.benchSize)
   )
 }
@@ -311,9 +336,27 @@ export function recruit(state: GameState, uid: string): GameState {
   return produce(state, (s) => {
     const i = s.muster.findIndex((m) => m.unit.uid === uid)
     const [c] = s.muster.splice(i, 1)
-    s.stock.gold -= c!.price
+    s.morale -= c!.price
     if (s.troop.length < troopSize(s)) s.troop.push(c!.unit)
     else s.bench.push(c!.unit)
+  })
+}
+
+export const rerollCost = (s: GameState) => CONFIG.muster.reroll.base + CONFIG.muster.reroll.step * s.rerolls
+
+export function canReroll(s: GameState): boolean {
+  return s.phase === 'turn' && s.morale >= rerollCost(s)
+}
+
+/** Spend morale to replace everyone waiting in the muster with a fresh set of the same size. */
+export function rerollMuster(state: GameState): GameState {
+  if (!canReroll(state)) return state
+  return produce(state, (s, ctx) => {
+    s.morale -= rerollCost(s)
+    s.rerolls++
+    const n = Math.max(s.muster.length, birthsPerTurn(s.population, s.species))
+    s.muster = birthCitizens(birthContext(s), n, ctx.rng, ctx.makeUid, absTurn(s) + CONFIG.muster.lifespan)
+    log(s, 'Called a new muster.')
   })
 }
 
@@ -365,7 +408,7 @@ export function releaseUnit(state: GameState, uid: string): GameState {
   if (!managing(state) || !findOwned(state, uid)) return state
   return produce(state, (s) => {
     const u = findOwned(s, uid)!
-    s.stock.gold += releaseRefund(u)
+    s.morale = clampMorale(s.morale + releaseRefund(u))
     s.troop = s.troop.filter((x) => x.uid !== uid)
     s.bench = s.bench.filter((x) => x.uid !== uid)
   })
@@ -392,7 +435,7 @@ export function doTask(state: GameState, id: string): GameState {
         s.stock.gold += t.gold
         break
       case 'festival':
-        s.growthBoost += t.growth
+        s.morale = clampMorale(s.morale + t.morale)
         break
       case 'census':
         s.muster.push(...birthCitizens(birthContext(s), t.citizens, ctx.rng, ctx.makeUid, absTurn(s) + CONFIG.muster.lifespan))
@@ -440,8 +483,8 @@ export function raidCamp(state: GameState, h: Hex): GameState {
       result,
       outcome: {
         ...baseOutcome(s, result),
-        damage: 0,
         gold: won ? loot.gold : 0,
+        morale: won ? CONFIG.morale.raidWin : CONFIG.morale.raidLoss,
         loot: won && res !== 'food' && res !== 'gold' ? { [res]: loot.resource } : {},
         claimed: won ? { q: h.q, r: h.r } : null,
       },
@@ -474,16 +517,17 @@ export function endTurn(state: GameState): GameState {
   if (!canEndTurn(state)) return state
   return produce(state, (s, ctx) => {
     const c = city(s)
-    for (const [k, v] of Object.entries(c.yields)) if (k !== 'food') s.stock[k as keyof Stock] += v
+    for (const [k, v] of Object.entries(effectiveYields(s))) if (k !== 'food') s.stock[k as keyof Stock] += v
     if (speciesMods(s.species).interest) {
       const { per, max } = CONFIG.economy.interest
       s.stock.gold += Math.min(max, Math.floor(s.stock.gold / per))
     }
-    s.population = Math.round(s.population * (1 + c.growth + s.growthBoost))
+    s.population = Math.round(s.population * (1 + growthRate(s)))
+    s.morale = clampMorale(s.morale + CONFIG.morale.regen)
 
     const now = absTurn(s)
     s.muster = s.muster.filter((m) => m.leavesAfter > now)
-    s.muster.push(...birthCitizens(birthContext(s), birthsPerTurn(c.births, s.species), ctx.rng, ctx.makeUid, now + CONFIG.muster.lifespan))
+    s.muster.push(...birthCitizens(birthContext(s), birthsPerTurn(s.population, s.species), ctx.rng, ctx.makeUid, now + CONFIG.muster.lifespan))
 
     if (!isLastTurn(s)) {
       s.turn++
@@ -494,15 +538,13 @@ export function endTurn(state: GameState): GameState {
     const ghost = s.ghost!
     const result = simulateCombat({ units: s.troop, bonuses: cityBonuses(c) }, { units: ghost.troop, bonuses: ghost.bonuses }, ctx.rng.fork())
     const base = baseOutcome(s, result)
-    const { base: dBase, perRound, perSurvivor } = CONFIG.damage
-    const damage = base.won ? 0 : Math.round((dBase + perRound * s.round + perSurvivor * base.enemySurvivors) * (base.draw ? 0.5 : 1))
     const { base: gBase, perRound: gPer } = CONFIG.rewards.battleGold
     s.battle = {
       kind: 'round',
       name: ghost.name,
       enemy: ghost.troop,
       result,
-      outcome: { ...base, damage, gold: base.won ? gBase + gPer * s.round : 0, loot: {}, claimed: null },
+      outcome: { ...base, gold: base.won ? gBase + gPer * s.round : 0, morale: base.won ? CONFIG.morale.battleWin : 0, loot: {}, claimed: null },
     }
     s.phase = 'battle'
   })
@@ -518,6 +560,7 @@ export function finishBattle(state: GameState): GameState {
     if (!outcome.fallenReturn) s.troop = s.troop.filter((u) => !fallen.has(u.uid))
     s.stock.gold += outcome.gold
     gain(s, outcome.loot)
+    s.morale = clampMorale(s.morale + outcome.morale)
     s.battle = null
 
     if (kind === 'skirmish') {
@@ -532,32 +575,17 @@ export function finishBattle(state: GameState): GameState {
       return
     }
 
-    s.hp = Math.max(0, s.hp - outcome.damage)
-    s.history.push({ round: s.round, won: outcome.won, damage: outcome.damage, opponent: name })
-    if (s.hp <= 0 || s.round >= CONFIG.rounds - 1) {
+    s.history.push({ round: s.round, won: outcome.won, opponent: name })
+    // Sudden elimination: any round battle you don't win ends the run.
+    if (!outcome.won || s.round >= CONFIG.rounds - 1) {
       s.phase = 'over'
-      s.victory = s.hp > 0
+      s.victory = outcome.won
       return
     }
     s.round++
     s.phase = 'turn'
     startRound(s, ctx)
   })
-}
-
-// ── Score ─────────────────────────────────────────────────────────────
-
-export function development(s: GameState): number {
-  const g = CONFIG.glory
-  const levels = s.map.tiles.reduce((n, t) => n + (t.building && t.building.id !== 'capital' ? t.building.level : 0), 0)
-  return Math.round(g.perLog10Pop * Math.log10(s.population) + g.perTile * ownedTiles(s.map).length + g.perBuildingLevel * levels)
-}
-
-/** Development × 2^wins, doubled for winning every round. Greed only pays if you keep winning. */
-export function glory(s: GameState): number {
-  const wins = s.history.filter((h) => h.won).length
-  const flawless = s.phase === 'over' && s.history.length === CONFIG.rounds && wins === CONFIG.rounds
-  return Math.round(development(s) * Math.pow(2, wins) * (flawless ? CONFIG.glory.victoryMult : 1))
 }
 
 export const keyOf = hexKey

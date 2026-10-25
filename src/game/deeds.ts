@@ -10,7 +10,7 @@ import { ownedTiles, type WorldMap } from './world/map'
 export type Task =
   | { id: string; kind: 'forage'; resources: Material[]; amount: number }
   | { id: string; kind: 'caravan'; gold: number }
-  | { id: string; kind: 'festival'; growth: number }
+  | { id: string; kind: 'festival'; morale: number }
   | { id: string; kind: 'census'; citizens: number }
   | { id: string; kind: 'prospect'; resource: Material; amount: number }
   | { id: string; kind: 'drill' }
@@ -39,7 +39,7 @@ export function taskText(t: Task): string {
     case 'caravan':
       return `+${t.gold} gold`
     case 'festival':
-      return `+${Math.round(t.growth * 100)}% growth this turn`
+      return `+${t.morale} morale`
     case 'census':
       return `${t.citizens} extra citizens join the muster now`
     case 'prospect':
@@ -59,7 +59,7 @@ export function rollTasks(map: WorldMap, round: number, turn: number, rng: Rng):
 
   const pool: Task[] = [
     { id: id('caravan'), kind: 'caravan', gold: 4 + 2 * round + Math.floor(turn / 3) },
-    { id: id('festival'), kind: 'festival', growth: 0.12 },
+    { id: id('festival'), kind: 'festival', morale: CONFIG.morale.festival },
     { id: id('census'), kind: 'census', citizens: 2 },
     { id: id('drill'), kind: 'drill' },
   ]

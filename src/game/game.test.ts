@@ -22,7 +22,6 @@ import {
   finishBattle,
   frontier,
   generateMap,
-  glory,
   hexDistance,
   isRanged,
   newGame,
@@ -31,6 +30,12 @@ import {
   raidBlock,
   raidCamp,
   rarityOdds,
+  recruit,
+  rerollCost,
+  rerollMuster,
+  moraleMult,
+  effectiveYields,
+  birthsPerTurn,
   simulateCombat,
   tileAt,
   troopSize,
@@ -87,6 +92,11 @@ describe('units', () => {
 })
 
 describe('population', () => {
+  it('odds of a rarity keep rising until the next one unlocks', () => {
+    expect(rarityOdds(500).uncommon).toBeGreaterThan(rarityOdds(150).uncommon)
+    expect(rarityOdds(50_000).rare).toBeGreaterThan(rarityOdds(5_000).rare)
+  })
+
   it('maps thresholds to rarities', () => {
     expect(civTier(50)).toBe('common')
     expect(civTier(100)).toBe('uncommon')
@@ -182,10 +192,9 @@ describe('citizens', () => {
 })
 
 describe('species', () => {
-  it('troop sizes, vitality, rarity shift, upgrade costs', () => {
+  it('troop sizes, rarity shift, upgrade costs', () => {
     expect(troopSize(started(1, 'goblin'))).toBe(CONFIG.troopSize + 2)
     expect(troopSize(started(1, 'dragon'))).toBe(CONFIG.troopSize - 2)
-    expect(started(1, 'feline').maxHp).toBe(150)
     expect(birthRarityOdds(100, 'dragon').common).toBe(0)
     const u = mk({ rarity: 'epic' })
     expect(unitUpgradeCost(started(1, 'golem'), u)!).toBeLessThan(unitUpgradeCost(started(1, 'human'), u)!)
@@ -205,7 +214,7 @@ describe('species', () => {
 
 describe('synergies', () => {
   it('tiers come from points, strength from academy level', () => {
-    const troop = [mk({ affinities: { fire: 2 } }), mk({ affinities: { fire: 2 } })]
+    const troop = [mk({ affinities: { fire: 3 } }), mk({ affinities: { fire: 3 } })]
     const fire = (lvl: number) => computeSynergies(troop, { fire: lvl }).find((s) => s.def.id === 'fire')!
     expect(fire(0).tier).toBe(2)
     expect(fire(4).effects.bonusMagic!).toBeGreaterThan(fire(0).effects.bonusMagic!)
@@ -247,7 +256,34 @@ describe('turns & deeds', () => {
     while (s.phase === 'turn') s = endTurn(s)
     expect(s.phase).toBe('battle')
     expect(s.battle!.outcome.won).toBe(false)
-    expect(s.battle!.outcome.damage).toBeGreaterThan(0)
+    // sudden elimination
+    const after = finishBattle(s)
+    expect(after.phase).toBe('over')
+    expect(after.victory).toBe(false)
+  })
+
+  it('recruiting spends morale, and morale scales field output', () => {
+    const s = started(4)
+    const c = s.muster.find((m) => m.price <= s.morale)!
+    const after = recruit(s, c.unit.uid)
+    expect(after.morale).toBe(s.morale - c.price)
+    expect(moraleMult(CONFIG.morale.max)).toBeGreaterThan(moraleMult(0))
+    const rich = effectiveYields({ map: s.map, morale: CONFIG.morale.max })
+    const poor = effectiveYields({ map: s.map, morale: 0 })
+    expect(rich.gold).toBeGreaterThan(poor.gold)
+  })
+
+  it('rerolling the muster costs more each time', () => {
+    let s: GameState = { ...started(4), morale: CONFIG.morale.max }
+    const first = rerollCost(s)
+    s = rerollMuster(s)
+    expect(s.morale).toBe(CONFIG.morale.max - first)
+    expect(rerollCost(s)).toBeGreaterThan(first)
+    expect(s.muster.length).toBeGreaterThan(0)
+  })
+
+  it('births grow with population', () => {
+    expect(birthsPerTurn(100_000, null)).toBeGreaterThan(birthsPerTurn(100, null))
   })
 
   it('only one deed per turn', () => {
@@ -288,13 +324,12 @@ describe('full runs', () => {
   }
 
   it('every species can play a whole game with both bot styles', () => {
-    for (const sp of ['human', 'ork', 'goblin', 'feline', 'dwarf', 'elf', 'golem', 'dragon'] as SpeciesId[]) {
+    for (const sp of ['human', 'ork', 'goblin', 'dwarf', 'elf', 'golem', 'dragon'] as SpeciesId[]) {
       for (const style of ['tempo', 'synergy'] as BotStyle[]) {
         const s = play(2026, sp, style)
         expect(s.phase).toBe('over')
-        expect(glory(s)).toBeGreaterThan(0)
-        if (s.victory) expect(s.history).toHaveLength(CONFIG.rounds)
-        else expect(s.hp).toBe(0)
+        if (s.victory) expect(s.history.every((h) => h.won)).toBe(true)
+        else expect(s.history.at(-1)!.won).toBe(false)
       }
     }
   })

@@ -78,17 +78,17 @@ export function BattleScreen() {
           <BattleCanvas result={result} clock={clock} onTick={onTick} />
           {done && (
             <div className={`verdict ${outcome.won ? 'won' : 'lost'}`}>
-              <h2>{outcome.won ? (skirmish ? 'Razed' : 'Victory') : outcome.draw ? 'Stalemate' : skirmish ? 'Repelled' : 'Defeat'}</h2>
+              <h2 data-help={skirmish ? 'camp' : 'battle'}>{outcome.won ? (skirmish ? 'Razed' : 'Victory') : outcome.draw ? 'Stalemate' : skirmish ? 'Repelled' : 'Defeat'}</h2>
               <p>
                 {outcome.won
                   ? `The field is yours${lootText.length ? `: ${lootText.join(', ')}` : ''}.`
                   : skirmish
                     ? `${outcome.enemySurvivors} of them still hold the camp. Your civilization is unharmed.`
-                    : `${outcome.enemySurvivors} of theirs still stand. Your civilization loses ${outcome.damage} vitality.`}
+                    : `${outcome.enemySurvivors} of theirs still stand. Your civilization has fallen.`}
               </p>
               {outcome.fallen.length > 0 && (
                 <div className="fallen">
-                  <h3>
+                  <h3 data-help="permadeath">
                     The fallen ({outcome.fallen.length}):{' '}
                     {outcome.fallenReturn ? 'elven rites will bring them back' : 'they will not return'}
                   </h3>
@@ -102,7 +102,7 @@ export function BattleScreen() {
               <button className="btn btn-primary" onClick={() => dispatch(finishBattle)}>
                 {skirmish
                   ? 'Return to the city'
-                  : s.hp - outcome.damage <= 0
+                  : !outcome.won
                     ? 'Accept your fate'
                     : s.round >= CONFIG.rounds - 1
                       ? 'Claim the age'

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="m" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f1dcae"/>
+      <stop offset="0.45" stop-color="#b98e55"/>
+      <stop offset="1" stop-color="#6e4f2c"/>
+    </linearGradient>
+    <linearGradient id="c" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8a2f24"/>
+      <stop offset="1" stop-color="#4a1712"/>
+    </linearGradient>
+  </defs>
+  <!-- drawn upright with the fingertip at (12,1), then rotated to point up-left with the tip at (3,2) -->
+  <g transform="translate(-9 1) rotate(-35 12 1)" stroke="#140d09" stroke-width="1.2" stroke-linejoin="round">
+    <path d="M8.5 21 L20.5 21 L22.5 28.5 L6.5 28.5 Z" fill="url(#c)"/>
+    <path d="M7 24.5 L22 24.5" stroke="#d9a75c" stroke-width="0.9"/>
+    <rect x="7.5" y="11" width="14" height="11" rx="3.2" fill="url(#m)"/>
+    <rect x="14.4" y="9.6" width="2.7" height="5.6" rx="1.35" fill="url(#m)"/>
+    <rect x="17.1" y="10.2" width="2.7" height="5.2" rx="1.35" fill="url(#m)"/>
+    <rect x="19.6" y="11.2" width="2.5" height="4.6" rx="1.25" fill="url(#m)"/>
+    <rect x="4.6" y="13.2" width="4.2" height="7.2" rx="2.1" transform="rotate(-28 6.7 16.8)" fill="url(#m)"/>
+    <rect x="9.5" y="1" width="5" height="13.5" rx="2.5" fill="url(#m)"/>
+    <path d="M10 5.6 L14 5.6 M10 9.6 L14 9.6" stroke="#5b4024" stroke-width="0.8"/>
+    <path d="M10.6 2.6 L10.6 12.6" stroke="#fff4d6" stroke-width="0.8" opacity="0.7"/>
+  </g>
+</svg>

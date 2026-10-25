@@ -17,6 +17,7 @@ export function SpeciesScreen() {
           <button
             key={id}
             className="species-card"
+            data-help={`species:${id}`}
             style={{ animationDelay: `${i * 50}ms` }}
             onClick={() => dispatch((s) => chooseSpecies(s, id))}
           >

@@ -15,8 +15,10 @@ import {
   upgradeUnit,
   type Effects,
 } from '../../game'
+import { useState } from 'react'
 import { useGame } from '../useGame'
 import { AffinityChips, UnitCard } from './UnitCard'
+import { UnitDetail } from './UnitDetail'
 import { AFFINITY_COLOR, AFFINITY_GLYPH } from '../theme'
 
 export const effectsText = (fx: Effects) =>
@@ -24,6 +26,8 @@ export const effectsText = (fx: Effects) =>
 
 export function TroopPanel() {
   const [s, dispatch] = useGame()
+  const [detail, setDetail] = useState<string | null>(null)
+  const detailUnit = detail ? [...s.troop, ...s.bench].find((u) => u.uid === detail) : undefined
   const size = troopSize(s)
   const levels = city(s).affinityLevels
   const synergies = computeSynergies(s.troop, levels).sort(
@@ -35,7 +39,10 @@ export function TroopPanel() {
     const cost = unitUpgradeCost(s, u)
     return (
       <div className="uc-actions">
-        <button className="btn btn-small" disabled={!canUpgrade(s, uid)} onClick={() => dispatch((st) => upgradeUnit(st, uid))}>
+        <button className="btn btn-small btn-detail" onClick={() => setDetail(uid)}>
+          Details
+        </button>
+        <button className="btn btn-small" data-help="level" disabled={!canUpgrade(s, uid)} onClick={() => dispatch((st) => upgradeUnit(st, uid))}>
           {cost === null ? (
             'Max'
           ) : (
@@ -56,6 +63,7 @@ export function TroopPanel() {
         <button
           className="btn btn-small btn-ghost"
           title={`Release for ${releaseRefund(u)}`}
+          data-help="release"
           onClick={() => confirm(`Release ${u.name}? Refund: ${releaseRefund(u)}`) && dispatch((st) => releaseUnit(st, uid))}
         >
           ✕
@@ -66,7 +74,8 @@ export function TroopPanel() {
 
   return (
     <div className="troop-panel">
-      <h3 className="section-title first">
+      {detailUnit && <UnitDetail unit={detailUnit} s={s} inTroop={s.troop.includes(detailUnit)} onClose={() => setDetail(null)} />}
+      <h3 className="section-title first" data-help="troop">
         Troop <small>{s.troop.length}/{size}</small>
       </h3>
       <div className="troop-slots">
@@ -82,22 +91,24 @@ export function TroopPanel() {
         })}
       </div>
 
-      <h3 className="section-title">Synergies</h3>
+      <h3 className="section-title" data-help="synergies">
+        Synergies
+      </h3>
       {s.troop.length > 0 && <AffinityChips points={troopAffinityPoints(s.troop)} />}
       <ul className="synergies">
         {synergies.length === 0 && <li className="empty">Affinity points in your troop add up to synergies.</li>}
         {synergies.map((syn) => {
           const preview = syn.tier > 0 ? syn.effects : synergyEffects(syn.def, 1, syn.level)
           return (
-            <li key={syn.def.id} className={`${syn.tier > 0 ? 'active' : ''} ${syn.def.components.length > 1 ? 'compound' : ''}`}>
-              <span className="syn-tier" title="Tier (from troop points)">
+            <li key={syn.def.id} data-help={`synergy:${syn.def.id}`} className={`${syn.tier > 0 ? 'active' : ''} ${syn.def.components.length > 1 ? 'compound' : ''}`}>
+              <span className="syn-tier" title="Tier (from troop points)" data-help="synergy-tier">
                 {[1, 2, 3, 4].map((t) => (
                   <i key={t} className={t <= syn.tier ? 'on' : ''} />
                 ))}
               </span>
               <span className="syn-name">
                 {syn.def.name}
-                <span className="syn-level" title="Affinity level (from academies)">
+                <span className="syn-level" title="Affinity level (from academies)" data-help="affinity-level">
                   Lv{syn.level} ×{CONFIG.affinity.levelMult[syn.level]}
                 </span>
               </span>
@@ -115,7 +126,7 @@ export function TroopPanel() {
         })}
       </ul>
 
-      <h3 className="section-title">
+      <h3 className="section-title" data-help="bench">
         Bench <small>{s.bench.length}/{CONFIG.benchSize}</small>
       </h3>
       <div className="bench">

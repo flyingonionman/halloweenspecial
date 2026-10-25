@@ -204,6 +204,13 @@
   transform: translateY(-4px);
 }
 
+.board-label.name {
+  font-family: var(--display);
+  font-size: 14px;
+  color: var(--bone);
+  border-color: rgba(255, 179, 107, 0.4);
+}
+
 .board-label.best {
   border-color: var(--gold);
   color: var(--gold);
@@ -631,6 +638,25 @@ kbd {
   color: #ff7a6a;
 }
 
+.scout-sealed {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px dashed var(--line);
+  color: var(--bone-faint);
+  font-size: 13px;
+}
+
+.scout-sealed p {
+  margin: 0;
+}
+
+.scout-seal {
+  font-size: 26px;
+  color: var(--bone-dim);
+}
+
 /* top bar turn track */
 
 .tl-turns {
@@ -655,37 +681,6 @@ kbd {
   box-shadow: 0 0 8px var(--ember);
 }
 
-/* glory */
-
-.glory-calc {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin: 4px 0 16px;
-  font-family: var(--mono);
-  color: var(--bone-faint);
-}
-
-.glory-calc span {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.glory-calc b {
-  font-size: 26px;
-  color: var(--bone);
-}
-
-.glory-calc small {
-  font-family: var(--body);
-}
-
-.glory-total b {
-  color: var(--gold);
-  font-size: 34px;
-  text-shadow: 0 0 24px rgba(233, 180, 76, 0.35);
-}
 
 @media (max-width: 1280px) {
   .turn {
