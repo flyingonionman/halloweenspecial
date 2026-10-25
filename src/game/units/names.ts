@@ -9,14 +9,28 @@ const FIRST = [
 ]
 
 const EPITHET: Record<Affinity, string[]> = {
-  sword: ['the Keen', 'Bladesworn', 'of the Edge'],
-  shield: ['the Wall', 'Ironside', 'the Steadfast'],
-  bow: ['Farshot', 'the Fletched', 'of the Long Draw'],
-  arcane: ['the Learned', 'Runeborn', 'of the Ninth Page'],
-  fire: ['the Kindled', 'Emberhand', 'of the Pyre', 'Ashborn'],
-  frost: ['the Pale', 'Rimeheart', 'of the Long Night', 'Hoarfrost'],
+  fire: ['the Kindled', 'Emberhand', 'of the Pyre'],
+  water: ['the Tidal', 'of the Deep', 'Rainborn'],
+  earth: ['the Rooted', 'Stonehand', 'of the Barrow'],
   wind: ['the Restless', 'Galeborn', 'of the Squall'],
-  earth: ['the Rooted', 'Stonehand', 'of the Barrow', 'Mossback'],
+  arcane: ['the Learned', 'Runeborn', 'of the Ninth Page'],
+  light: ['the Bright', 'of the Dawn', 'Haloed'],
+  dark: ['the Hollow', 'of the Crypt', 'Duskborn'],
+  magma: ['Cinderheart', 'of the Caldera'],
+  weaponry: ['the Keen', 'Bladesworn', 'of the Edge'],
+  steel: ['Ironside', 'the Tempered'],
+  ice: ['Rimeheart', 'the Pale', 'Hoarfrost'],
+  verdance: ['Mossback', 'of the Grove', 'Greenhand'],
+  storm: ['Thunderkin', 'of the Squall'],
+  archery: ['Farshot', 'the Fletched'],
+  electricity: ['Sparkblood', 'the Charged'],
+  knighthood: ['the Sworn', 'of the Order'],
+  spellblade: ['Runeblade', 'the Inscribed'],
+  sanctity: ['the Blessed', 'of the Cathedral'],
+  necromancy: ['Gravecaller', 'the Unburied'],
+  machinery: ['Cogheart', 'the Wound'],
+  thunder: ['Stormcaller', 'of the Ninth Bolt'],
+  eclipse: ['the Twilit', 'of the Black Sun'],
 }
 
 const TITLE: Record<UnitType, string[]> = {

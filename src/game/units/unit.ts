@@ -9,6 +9,7 @@ import { CONFIG, RARITIES, type Rarity } from '../config'
 import { TYPE_DEFS, type Stats, type UnitType } from './types'
 import type { AffinityPoints } from '../affinities'
 import type { Rng } from '../rng'
+import type { Cost } from '../world/terrain'
 import { unitName } from './names'
 
 export interface Unit {
@@ -72,11 +73,22 @@ export function upgradeDiscount(u: Unit): number {
 }
 
 /** Null when the unit is at max level. `mult` carries species modifiers. */
-export function upgradeCost(u: Unit, mult = 1): number | null {
+/**
+ * Gold and materials to raise a unit one level. Expensive on purpose, and
+ * steeper the higher you go and the rarer the unit: a level-5 legendary is a
+ * major investment, not a default. Null at max level. `mult` carries species
+ * modifiers; veteran discounts apply to everything.
+ */
+export function upgradeCost(u: Unit, mult = 1): Cost | null {
   if (u.level >= CONFIG.level.max) return null
-  const { costFactor, costGrowth } = CONFIG.level
-  const raw = CONFIG.rarityPrice[u.rarity] * costFactor * Math.pow(costGrowth, u.level - 1)
-  return Math.max(1, Math.round(raw * (1 - upgradeDiscount(u)) * mult))
+  const L = CONFIG.level
+  const target = u.level + 1
+  const scale = (1 - upgradeDiscount(u)) * mult
+  const cost: Cost = { gold: Math.round(L.goldBase * (rarityIndex(u.rarity) + 1) * Math.pow(L.goldGrowth, u.level - 1) * scale) }
+  for (const m of L.materials) {
+    if (target >= m.fromLevel) cost[m.resource] = Math.max(1, Math.round(m.perLevel * (target - m.fromLevel + 1) * scale))
+  }
+  return cost
 }
 
 /** Morale given back when you let a unit go. */

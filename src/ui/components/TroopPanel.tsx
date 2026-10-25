@@ -1,7 +1,7 @@
 import {
+  AFFINITY_DEFS,
   CONFIG,
   EFFECT_TEXT,
-  canUpgrade,
   city,
   computeSynergies,
   moveToBench,
@@ -11,14 +11,13 @@ import {
   synergyEffects,
   troopAffinityPoints,
   troopSize,
-  unitUpgradeCost,
-  upgradeUnit,
   type Effects,
 } from '../../game'
 import { useState } from 'react'
 import { useGame } from '../useGame'
 import { AffinityChips, UnitCard } from './UnitCard'
 import { UnitDetail } from './UnitDetail'
+import { LevelUpButton } from './LevelUpButton'
 import { AFFINITY_COLOR, AFFINITY_GLYPH } from '../theme'
 
 export const effectsText = (fx: Effects) =>
@@ -30,27 +29,19 @@ export function TroopPanel() {
   const detailUnit = detail ? [...s.troop, ...s.bench].find((u) => u.uid === detail) : undefined
   const size = troopSize(s)
   const levels = city(s).affinityLevels
+  // Grouped by affinity tier; within a tier, active synergies and bigger stacks first.
   const synergies = computeSynergies(s.troop, levels).sort(
-    (a, b) => b.tier - a.tier || b.def.components.length - a.def.components.length || Math.min(...b.points) - Math.min(...a.points),
+    (a, b) => AFFINITY_DEFS[a.def.id].tier - AFFINITY_DEFS[b.def.id].tier || b.tier - a.tier || b.points[0]! - a.points[0]!,
   )
 
   const actions = (uid: string, where: 'troop' | 'bench') => {
     const u = [...s.troop, ...s.bench].find((x) => x.uid === uid)!
-    const cost = unitUpgradeCost(s, u)
     return (
       <div className="uc-actions">
         <button className="btn btn-small btn-detail" onClick={() => setDetail(uid)}>
           Details
         </button>
-        <button className="btn btn-small" data-help="level" disabled={!canUpgrade(s, uid)} onClick={() => dispatch((st) => upgradeUnit(st, uid))}>
-          {cost === null ? (
-            'Max'
-          ) : (
-            <>
-              Lv↑ <b className="gold">{cost}</b>
-            </>
-          )}
-        </button>
+        <LevelUpButton unit={u} compact />
         {where === 'troop' ? (
           <button className="btn btn-small" disabled={s.bench.length >= CONFIG.benchSize} onClick={() => dispatch((st) => moveToBench(st, uid))}>
             Bench
@@ -72,9 +63,10 @@ export function TroopPanel() {
     )
   }
 
+  if (detailUnit) return <UnitDetail inline unit={detailUnit} s={s} inTroop={s.troop.includes(detailUnit)} onClose={() => setDetail(null)} />
+
   return (
     <div className="troop-panel">
-      {detailUnit && <UnitDetail unit={detailUnit} s={s} inTroop={s.troop.includes(detailUnit)} onClose={() => setDetail(null)} />}
       <h3 className="section-title first" data-help="troop">
         Troop <small>{s.troop.length}/{size}</small>
       </h3>
@@ -97,9 +89,16 @@ export function TroopPanel() {
       {s.troop.length > 0 && <AffinityChips points={troopAffinityPoints(s.troop)} />}
       <ul className="synergies">
         {synergies.length === 0 && <li className="empty">Affinity points in your troop add up to synergies.</li>}
-        {synergies.map((syn) => {
+        {synergies.map((syn, i) => {
+          const tierHead =
+            i === 0 || AFFINITY_DEFS[syn.def.id].tier !== AFFINITY_DEFS[synergies[i - 1]!.def.id].tier ? (
+              <li key={`t${AFFINITY_DEFS[syn.def.id].tier}`} className="aff-tier">
+                Tier {AFFINITY_DEFS[syn.def.id].tier}
+              </li>
+            ) : null
           const preview = syn.tier > 0 ? syn.effects : synergyEffects(syn.def, 1, syn.level)
-          return (
+          return [
+            tierHead,
             <li key={syn.def.id} data-help={`synergy:${syn.def.id}`} className={`${syn.tier > 0 ? 'active' : ''} ${syn.def.components.length > 1 ? 'compound' : ''}`}>
               <span className="syn-tier" title="Tier (from troop points)" data-help="synergy-tier">
                 {[1, 2, 3, 4].map((t) => (
@@ -121,8 +120,8 @@ export function TroopPanel() {
                 ))}
               </span>
               <span className="syn-text">{effectsText(preview)}</span>
-            </li>
-          )
+            </li>,
+          ]
         })}
       </ul>
 

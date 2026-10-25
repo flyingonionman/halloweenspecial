@@ -29,7 +29,7 @@ describe('right-click help', () => {
       ...UNIT_TYPES.map((t) => `type:${t}`),
       ...RARITIES.map((r) => `rarity:${r}`),
       ...['civic', 'extractor', 'military', 'research'].map((k) => `kind:${k}`),
-      ...['tile', 'muster', 'troop', 'deeds', 'scout'].map((k) => `tab:${k}`),
+      ...['tile', 'muster', 'troop', 'build', 'scout'].map((k) => `tab:${k}`),
       ...['hp', 'atk', 'def', 'rng', 'pwr'].map((k) => `stat:${k}`),
     ]
     const seen = new Set<string>()

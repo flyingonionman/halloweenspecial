@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  AFFINITY_TERRAIN,
   CONFIG,
   affinityBirthWeights,
   Rng,
@@ -16,7 +15,6 @@ import {
   computeSynergies,
   createUnit,
   demolish,
-  doTask,
   endTurn,
   evaluateBuilding,
   finishBattle,
@@ -35,7 +33,12 @@ import {
   rerollMuster,
   moraleMult,
   effectiveYields,
-  birthsPerTurn,
+  musterSize,
+  birthContext,
+  buildBlock as buildBlockOf,
+  isUnlocked,
+  AFFINITY_DEFS,
+  troopEconomy,
   simulateCombat,
   tileAt,
   troopSize,
@@ -58,7 +61,7 @@ const counter = () => {
 
 let uidN = 0
 const mk = (roll: Partial<UnitRoll> = {}, level = 1): Unit => ({
-  ...createUnit(`m${uidN++}`, { type: 'fighter', affinities: { sword: 1 }, rarity: 'common', quality: 1, ...roll }, new Rng(1)),
+  ...createUnit(`m${uidN++}`, { type: 'fighter', affinities: { weaponry: 1 }, rarity: 'common', quality: 1, ...roll }, new Rng(1)),
   level,
 })
 
@@ -86,7 +89,9 @@ describe('units', () => {
 
   it('veterans upgrade cheaper; max level cannot upgrade', () => {
     const fresh = mk({ rarity: 'epic' })
-    expect(upgradeCost({ ...fresh, battlesSurvived: 3 })!).toBeLessThan(upgradeCost(fresh)!)
+    expect(upgradeCost({ ...fresh, battlesSurvived: 3 })!.gold!).toBeLessThan(upgradeCost(fresh)!.gold!)
+    expect(upgradeCost(mk({ rarity: "epic" }, 3))!.iron).toBeGreaterThan(0)
+    expect(upgradeCost(mk({ rarity: "epic" }, 3))!.gold!).toBeGreaterThan(upgradeCost(fresh)!.gold! * 3)
     expect(upgradeCost(mk({}, CONFIG.level.max))).toBeNull()
   })
 })
@@ -175,19 +180,25 @@ describe('territory', () => {
 
 describe('citizens', () => {
   it('land shapes affinities', () => {
-    const weights = (a: Affinity) => Object.fromEntries(['sword', 'shield', 'bow', 'arcane', 'fire', 'frost', 'wind', 'earth'].map((x) => [x, x === a ? 30 : 1])) as Record<Affinity, number>
-    const born = birthCitizens({ population: 100, species: null, affinityWeights: weights('frost'), affinityLevels: {} }, 400, new Rng(2), counter(), 0)
-    const frost = born.filter((c) => c.unit.affinities.frost).length
-    expect(frost / 400).toBeGreaterThan(0.6)
+    const weights = (a: Affinity) => Object.fromEntries(['fire', 'water', 'earth', 'wind', 'arcane', 'light', 'dark'].map((x) => [x, x === a ? 30 : 1])) as Record<Affinity, number>
+    const born = birthCitizens({ population: 100, species: null, affinityWeights: weights('water'), affinityLevels: {} }, 400, new Rng(2), counter())
+    const water = born.filter((c) => c.unit.affinities.water).length
+    expect(water / 400).toBeGreaterThan(0.6)
     // mutations still happen
-    expect(born.some((c) => !c.unit.affinities.frost)).toBe(true)
+    expect(born.some((c) => !c.unit.affinities.water)).toBe(true)
+  })
+
+  it('locked affinities are never born', () => {
+    const s = started(21)
+    const born = birthCitizens(birthContext(s), 300, new Rng(3), counter())
+    for (const c of born) for (const a of Object.keys(c.unit.affinities)) expect(AFFINITY_DEFS[a as Affinity].tier).toBe(1)
   })
 
   it('owning more of a terrain raises its affinity birth weight', () => {
     const s = started(21)
-    const before = affinityBirthWeights(city(s)).frost
-    const map = { ...s.map, tiles: s.map.tiles.map((t) => (t.owned && !t.building ? { ...t, terrain: AFFINITY_TERRAIN.frost } : t)) }
-    expect(affinityBirthWeights(city({ map })).frost).toBeGreaterThan(before)
+    const before = affinityBirthWeights(city(s)).wind
+    const map = { ...s.map, tiles: s.map.tiles.map((t) => (t.owned && !t.building ? { ...t, terrain: 'highlands' as const } : t)) }
+    expect(affinityBirthWeights(city({ map })).wind).toBeGreaterThan(before)
   })
 })
 
@@ -197,17 +208,14 @@ describe('species', () => {
     expect(troopSize(started(1, 'dragon'))).toBe(CONFIG.troopSize - 2)
     expect(birthRarityOdds(100, 'dragon').common).toBe(0)
     const u = mk({ rarity: 'epic' })
-    expect(unitUpgradeCost(started(1, 'golem'), u)!).toBeLessThan(unitUpgradeCost(started(1, 'human'), u)!)
+    expect(unitUpgradeCost(started(1, "golem"), u)!.gold!).toBeLessThan(unitUpgradeCost(started(1, "human"), u)!.gold!)
   })
 
-  it('orks are born twice as fast; dwarves rarely see ranged', () => {
-    const births = (sp: SpeciesId) => {
-      const s = started(8, sp)
-      return endTurn(s).muster.length - s.muster.length
-    }
-    expect(births('ork')).toBeGreaterThan(births('human'))
+  it('orks get a bigger muster; dwarves rarely see ranged', () => {
+    expect(started(8, 'ork').muster.length).toBe(musterSize('ork'))
+    expect(musterSize('ork')).toBeGreaterThan(musterSize('human'))
     const s = started(9, 'dwarf')
-    const born = birthCitizens({ population: 100, species: 'dwarf', affinityWeights: affinityBirthWeights(city(s)), affinityLevels: {} }, 300, new Rng(1), counter(), 0)
+    const born = birthCitizens({ population: 100, species: 'dwarf', affinityWeights: affinityBirthWeights(city(s)), affinityLevels: {} }, 300, new Rng(1), counter())
     expect(born.filter((c) => isRanged(c.unit.type)).length / 300).toBeLessThan(0.12)
   })
 })
@@ -217,17 +225,23 @@ describe('synergies', () => {
     const troop = [mk({ affinities: { fire: 3 } }), mk({ affinities: { fire: 3 } })]
     const fire = (lvl: number) => computeSynergies(troop, { fire: lvl }).find((s) => s.def.id === 'fire')!
     expect(fire(0).tier).toBe(2)
-    expect(fire(4).effects.bonusMagic!).toBeGreaterThan(fire(0).effects.bonusMagic!)
+    expect(fire(4).effects.atkPct!).toBeGreaterThan(fire(0).effects.atkPct!)
   })
 
-  it('sword + shield combine into knight at the lower tier; effects go to carriers only', () => {
-    const mage = mk({ type: 'mage', affinities: { sword: 2 } })
-    const troop = [mage, mk({ affinities: { shield: 2, sword: 2 } }), mk({ type: 'tank', affinities: { earth: 1 } })]
+  it('effects go to carriers only, unless the affinity is a team synergy', () => {
+    const mage = mk({ type: 'mage', affinities: { weaponry: 2 } })
+    const troop = [mage, mk({ affinities: { weaponry: 2 } }), mk({ type: 'tank', affinities: { earth: 1 } })]
     const syn = computeSynergies(troop)
-    expect(syn.find((s) => s.def.id === 'knight')!.tier).toBe(1)
     expect(combatStats(mage, syn).atk).toBeGreaterThan(combatStats(mage, []).atk)
     expect(combatStats(mage, syn).damage).toBe('magic')
     expect(combatStats(troop[2]!, syn).atk).toBe(combatStats(troop[2]!, []).atk)
+    const thunder = [mk({ affinities: { thunder: 2 } }), mk({ type: 'tank', affinities: { earth: 1 } })]
+    expect(combatStats(thunder[1]!, computeSynergies(thunder)).chain).toBeGreaterThan(0)
+  })
+
+  it('tier-1 synergies feed the economy', () => {
+    const troop = [mk({ affinities: { earth: 3 } }), mk({ affinities: { earth: 3 } })]
+    expect(troopEconomy(troop).yieldPct.stone!).toBeGreaterThan(0)
   })
 })
 
@@ -268,8 +282,8 @@ describe('turns & deeds', () => {
     const after = recruit(s, c.unit.uid)
     expect(after.morale).toBe(s.morale - c.price)
     expect(moraleMult(CONFIG.morale.max)).toBeGreaterThan(moraleMult(0))
-    const rich = effectiveYields({ map: s.map, morale: CONFIG.morale.max })
-    const poor = effectiveYields({ map: s.map, morale: 0 })
+    const rich = effectiveYields({ map: s.map, morale: CONFIG.morale.max, troop: [] })
+    const poor = effectiveYields({ map: s.map, morale: 0, troop: [] })
     expect(rich.gold).toBeGreaterThan(poor.gold)
   })
 
@@ -282,16 +296,20 @@ describe('turns & deeds', () => {
     expect(s.muster.length).toBeGreaterThan(0)
   })
 
-  it('births grow with population', () => {
-    expect(birthsPerTurn(100_000, null)).toBeGreaterThan(birthsPerTurn(100, null))
+  it('a fresh muster is called every turn', () => {
+    const s = started(4)
+    const next = endTurn(s)
+    expect(next.muster).toHaveLength(musterSize(s.species))
+    expect(next.muster.some((c) => s.muster.some((o) => o.unit.uid === c.unit.uid))).toBe(false)
   })
 
-  it('only one deed per turn', () => {
-    let s = started(4)
-    const [a, b] = s.tasks
-    s = doTask(s, a!.id)
-    expect(s.deedDone).toBe(true)
-    expect(doTask(s, b!.id)).toBe(s)
+  it('higher-tier academies unlock through their parents', () => {
+    expect(isUnlocked('fire', {})).toBe(true)
+    expect(isUnlocked('magma', { fire: 1, earth: 2 })).toBe(false)
+    expect(isUnlocked('magma', { fire: 2, earth: 2 })).toBe(true)
+    const s = started(4)
+    const t = ownedTiles(s.map).find((x) => !x.building)!
+    expect(buildBlockOf({ ...s, stock: { ...s.stock, gold: 999 } }, t, 'magma-academy')).toBe('locked')
   })
 
   it('razing a camp claims its tile; fallen units die', () => {

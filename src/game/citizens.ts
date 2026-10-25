@@ -1,6 +1,6 @@
 /**
- * Citizens are born every turn into the muster, shaped by your land and
- * research. They wait a few turns to be recruited, then move on.
+ * Every turn a fresh muster of citizens is called, shaped by your land and
+ * research. Recruit them now (with morale) or they're gone next turn.
  */
 import { CONFIG, RARITIES } from './config'
 import { AFFINITIES, type Affinity, type AffinityPoints } from './affinities'
@@ -14,8 +14,6 @@ export interface Citizen {
   unit: Unit
   /** Morale to recruit. */
   price: number
-  /** Absolute turn index after which this citizen leaves the muster. */
-  leavesAfter: number
 }
 
 export interface BirthContext {
@@ -38,13 +36,13 @@ export function rollCitizen(ctx: BirthContext, rng: Rng): UnitRoll {
 
   const total = CONFIG.affinity.pointsByRarity[rarity]
   const weight = (a: Affinity) => ctx.affinityWeights[a]
-  const first = rng.weighted(AFFINITIES, weight)
+  // Only affinities with weight (unlocked and researched, or tier-1) can ever be rolled.
+  const open = AFFINITIES.filter((a) => weight(a) > 0)
+  const first = rng.weighted(open, weight)
+  const others = open.filter((a) => a !== first)
   const affinities: AffinityPoints = {}
-  if (total >= 2 && rng.chance(CONFIG.affinity.dualChance)) {
-    const second = rng.weighted(
-      AFFINITIES.filter((a) => a !== first),
-      weight,
-    )
+  if (total >= 2 && others.length && rng.chance(CONFIG.affinity.dualChance)) {
+    const second = rng.weighted(others, weight)
     const split = rng.int(1, total - 1)
     affinities[first] = total - split
     affinities[second] = split
@@ -63,22 +61,18 @@ export function rollCitizen(ctx: BirthContext, rng: Rng): UnitRoll {
   return { type, affinities, rarity, quality }
 }
 
-export function birthCitizens(ctx: BirthContext, count: number, rng: Rng, makeUid: () => string, leavesAfter: number): Citizen[] {
+export function birthCitizens(ctx: BirthContext, count: number, rng: Rng, makeUid: () => string): Citizen[] {
   return Array.from({ length: count }, () => {
     const unit = createUnit(makeUid(), rollCitizen(ctx, rng), rng)
-    return { unit, price: recruitCost(unit), leavesAfter }
+    return { unit, price: recruitCost(unit) }
   })
 }
 
-/** Citizens born each turn: grows by one per order of magnitude of population. */
-export function birthsPerTurn(population: number, species: SpeciesId | null): number {
-  const b = CONFIG.muster.births
-  const base = b.base + b.perOrder * Math.max(0, Math.floor(Math.log10(population / CONFIG.start.population)))
-  return Math.round(base * (speciesMods(species).birthsMult ?? 1))
-}
+/** How many citizens answer each muster. */
+export const musterSize = (species: SpeciesId | null) => Math.round(CONFIG.muster.size * (speciesMods(species).birthsMult ?? 1))
 
 /** Normalized affinity odds for display. */
 export function affinityOdds(weights: Record<Affinity, number>): Record<Affinity, number> {
-  const total = AFFINITIES.reduce((s, a) => s + weights[a], 0)
+  const total = AFFINITIES.reduce((s, a) => s + weights[a], 0) || 1
   return Object.fromEntries(AFFINITIES.map((a) => [a, weights[a] / total])) as Record<Affinity, number>
 }

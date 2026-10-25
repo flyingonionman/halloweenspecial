@@ -1,11 +1,11 @@
-import { RESOURCE_LABEL, RESOURCES, type Cost, type OutputKey, type Outputs, type ResourceId } from '../game'
+import { CONFIG, RESOURCE_LABEL, RESOURCES, type Cost, type OutputKey, type Outputs, type ResourceId } from '../game'
 
 const STAT_LABEL: Partial<Record<OutputKey, (v: number) => string>> = {
   atkPct: (v) => `+${(v * 100).toFixed(1).replace(/\.0$/, '')}% ATK`,
   hpPct: (v) => `+${(v * 100).toFixed(1).replace(/\.0$/, '')}% HP`,
   defPct: (v) => `+${(v * 100).toFixed(1).replace(/\.0$/, '')}% DEF`,
   trade: (v) => (v > 0 ? `trade −${v}` : 'trading'),
-  attune: (v) => `attune ${v}`,
+  attune: (v) => `+${Math.round(v * CONFIG.affinity.combatBonusPerAttune * 100)}% carrier strength (attune ${v})`,
 }
 
 export interface OutputPart {

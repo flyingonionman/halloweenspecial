@@ -23,6 +23,46 @@ import {
 import { AFFINITY_COLOR, AFFINITY_GLYPH, RARITY_COLOR } from '../theme'
 import { AffinityChips } from './UnitCard'
 import { Portrait } from './Portrait'
+import { LevelUpButton } from './LevelUpButton'
+import { CostChips } from './BuildingBits'
+import { useState } from 'react'
+import { useGame } from '../useGame'
+import { renameUnit } from '../../game'
+
+/** Click the name to rename; Enter or blur saves, Escape cancels. */
+function EditableName({ unit }: { unit: Unit }) {
+  const [, dispatch] = useGame()
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(unit.name)
+  if (!editing) {
+    return (
+      <h3 className="us-name editable" title="Click to rename" onClick={() => (setDraft(unit.name), setEditing(true))}>
+        {unit.name} <span className="us-pencil">✎</span>
+      </h3>
+    )
+  }
+  const save = () => {
+    dispatch((st) => renameUnit(st, unit.uid, draft))
+    setEditing(false)
+  }
+  return (
+    <input
+      className="us-name-input"
+      autoFocus
+      maxLength={32}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={save}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') save()
+        if (e.key === 'Escape') {
+          e.stopPropagation()
+          setEditing(false)
+        }
+      }}
+    />
+  )
+}
 
 const pct = (v: number) => `${Math.round(v * 100)}%`
 
@@ -32,6 +72,7 @@ export function UnitDetail({
   inTroop,
   onClose,
   actions,
+  inline,
 }: {
   unit: Unit
   s: GameState
@@ -39,9 +80,11 @@ export function UnitDetail({
   onClose: () => void
   /** Extra buttons for the footer, e.g. Recruit from the muster. */
   actions?: React.ReactNode
+  /** Render inside a panel (with a back arrow) instead of as a modal. */
+  inline?: boolean
 }) {
   useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && !(e.target instanceof HTMLInputElement) && onClose()
     window.addEventListener('keydown', k)
     return () => window.removeEventListener('keydown', k)
   }, [onClose])
@@ -53,6 +96,7 @@ export function UnitDetail({
   const battle = combatStats(unit, synergies, cityBonuses(c))
   const carried = synergies.filter((syn) => syn.tier > 0 && syn.def.components.some((a) => (unit.affinities[a] ?? 0) > 0))
   const cost = unitUpgradeCost(s, unit)
+  const owned = s.troop.some((u) => u.uid === unit.uid) || s.bench.some((u) => u.uid === unit.uid)
 
   const row = (label: string, help: string, a: string | number, b: string | number) => (
     <tr data-help={help}>
@@ -75,9 +119,13 @@ export function UnitDetail({
     battle.lifesteal > 0 ? ['Lifesteal', pct(battle.lifesteal)] : null,
   ].filter((x): x is [string, string] => !!x)
 
-  return (
-    <div className="sheet-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="sheet unit-sheet" role="dialog" aria-label={unit.name} style={{ '--rarity': RARITY_COLOR[unit.rarity] } as React.CSSProperties}>
+  const body = (
+      <div className={`sheet unit-sheet ${inline ? 'inline' : ''}`} role={inline ? undefined : 'dialog'} aria-label={unit.name} style={{ '--rarity': RARITY_COLOR[unit.rarity] } as React.CSSProperties}>
+        {inline && (
+          <button className="bp-back us-back" onClick={onClose} aria-label="Back">
+            ←
+          </button>
+        )}
         <header className="sheet-head">
           <Portrait unit={unit} size={84} />
           <div>
@@ -93,12 +141,14 @@ export function UnitDetail({
                 </span>
               )}
             </span>
-            <h3>{unit.name}</h3>
+            {owned ? <EditableName unit={unit} /> : <h3>{unit.name}</h3>}
             <AffinityChips points={unit.affinities} />
           </div>
-          <button className="help-close" onClick={onClose} aria-label="Close">
-            ×
-          </button>
+          {!inline && (
+            <button className="help-close" onClick={onClose} aria-label="Close">
+              ×
+            </button>
+          )}
         </header>
 
         <section className="us-style">
@@ -182,12 +232,22 @@ export function UnitDetail({
         </section>
 
         <footer className="us-foot">
-          <span className="muted">
-            {cost === null ? 'Max level.' : `Next level: ${cost} gold${upgradeDiscount(unit) > 0 ? ` (veteran −${pct(upgradeDiscount(unit))})` : ''}.`}
-          </span>
+          {owned ? (
+            <LevelUpButton unit={unit} />
+          ) : (
+            <span className="muted">
+              {cost === null ? 'Max level.' : <>Levelling to {unit.level + 1}: <CostChips cost={cost} /></>}
+            </span>
+          )}
+          {owned && upgradeDiscount(unit) > 0 && <span className="muted">veteran −{pct(upgradeDiscount(unit))}</span>}
           {actions}
         </footer>
       </div>
+  )
+  if (inline) return body
+  return (
+    <div className="sheet-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      {body}
     </div>
   )
 }

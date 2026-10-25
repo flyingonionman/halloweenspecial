@@ -9,8 +9,9 @@
  *   military  — permanent combat bonuses for every unit (the tempo line)
  *   research  — one academy per affinity; its level is that affinity's level
  */
-import { AFFINITIES, AFFINITY_LABEL, type Affinity } from '../affinities'
-import { AFFINITY_RESOURCE, AFFINITY_TERRAIN, TERRAIN_DEFS, type Cost, type ResourceId, type TerrainId } from './terrain'
+import { AFFINITIES, AFFINITY_DEFS, AFFINITY_LABEL, type Affinity } from '../affinities'
+import { CONFIG } from '../config'
+import { TERRAIN_DEFS, type Cost, type ResourceId, type TerrainId } from './terrain'
 
 export type OutputKey = ResourceId | 'atkPct' | 'hpPct' | 'defPct' | 'trade' | 'attune'
 export type Outputs = Partial<Record<OutputKey, number>>
@@ -58,17 +59,8 @@ export interface BuildingDef {
 }
 
 const flat = (c: Cost) => () => c
-
-const RESEARCH_NAMES: Record<Affinity, string> = {
-  sword: 'Sword School',
-  shield: 'Shieldwright Hall',
-  bow: 'Archery Range',
-  arcane: 'Arcane Library',
-  fire: 'Fire Mage’s Academy',
-  frost: 'Frost Spire',
-  wind: 'Wind Tower',
-  earth: 'Stone Circle',
-}
+const UNLOCK_LEVEL = CONFIG.affinity.unlockLevel
+export const academyId = (a: Affinity): AcademyId => `${a}-academy`
 
 export const BUILDING_DEFS: Record<BuildingId, BuildingDef> = {
   capital: {
@@ -187,31 +179,35 @@ export const BUILDING_DEFS: Record<BuildingId, BuildingDef> = {
     }),
   ) as Record<ExtractorId, BuildingDef>),
   ...(Object.fromEntries(
-    AFFINITIES.map((a) => {
-      const terrain = AFFINITY_TERRAIN[a]
-      const res = AFFINITY_RESOURCE[a]
+    AFFINITIES.map((a): [AcademyId, BuildingDef] => {
+      const d = AFFINITY_DEFS[a]
+      const recipe = d.parents.length ? ` Unlocks when ${d.parents.map((p) => AFFINITY_LABEL[p]).join(' and ')} reach Lv${UNLOCK_LEVEL}.` : ''
       return [
-        `${a}-academy`,
+        academyId(a),
         {
-          id: `${a}-academy`,
-          name: RESEARCH_NAMES[a],
+          id: academyId(a),
+          name: d.academy,
           kind: 'research',
           affinity: a,
-          text: `${AFFINITY_LABEL[a]} level = academy level. More ${AFFINITY_LABEL[a]} citizens, stronger carriers, stronger ${AFFINITY_LABEL[a]} synergies. Attunes to neighbouring ${TERRAIN_DEFS[terrain].label.toLowerCase()}.`,
-          allowed: 'any',
+          text: `Tier ${d.tier}. ${AFFINITY_LABEL[a]} level = academy level: more ${AFFINITY_LABEL[a]} citizens, stronger carriers and synergies.${recipe} Attunes to neighbouring ${TERRAIN_DEFS[d.attune].label.toLowerCase()}.`,
+          allowed: d.site,
           unique: true,
           maxLevel: 4,
-          cost: (level: number) => ({ gold: 3 + 2 * level, [res]: 3 * level }),
+          // Higher tiers cost more; every material in the recipe is needed.
+          cost: (level: number) => ({
+            gold: (3 + 2 * level) * d.tier,
+            ...Object.fromEntries(d.materials.filter((m) => m !== 'food').map((m) => [m, 2 * level * d.tier])),
+          }),
           base: {},
-          adjacency: [{ per: { terrain }, add: { attune: 1 }, cap: 3 }],
-        } satisfies BuildingDef,
+          adjacency: [{ per: { terrain: d.attune }, add: { attune: 1 }, cap: 3 }],
+        },
       ]
     }),
   ) as Record<AcademyId, BuildingDef>),
 }
 
 export const BUILDINGS: BuildingDef[] = Object.values(BUILDING_DEFS).filter((b) => b.kind !== 'capital')
-export const academyId = (a: Affinity): AcademyId => `${a}-academy`
+
 
 export function canPlaceOn(def: BuildingDef, terrain: TerrainId): boolean {
   if (!TERRAIN_DEFS[terrain].buildable) return false

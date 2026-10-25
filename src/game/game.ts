@@ -4,7 +4,7 @@
  * the matching `can*` helpers let the UI disable buttons.
  *
  * Flow: pick a species → 5 rounds × (10 turns of city-building → 1 battle vs a ghost).
- * Each turn: build, claim, trade, recruit freely; plus one deed (a task or a camp raid).
+ * Each turn: build, claim, research, trade, raid camps, and recruit from a fresh muster.
  * Round battles are sudden elimination: lose one and the run is over.
  *
  * Morale is both currency (recruiting, rerolling the muster) and productivity
@@ -13,13 +13,14 @@
 import { CONFIG } from './config'
 import { Rng } from './rng'
 import { aiGhosts, campTroop, type GhostSnapshot } from './ai'
-import { birthCitizens, birthsPerTurn, type BirthContext, type Citizen } from './citizens'
+import { birthCitizens, musterSize, type BirthContext, type Citizen } from './citizens'
 import { simulateCombat, type CombatResult } from './combat/sim'
-import { campLoot, rollTasks, taskTitle, type Task } from './deeds'
+import { campLoot } from './deeds'
 import { SPECIES, speciesMods, type SpeciesId } from './species'
 import { releaseRefund, upgradeCost, type Unit } from './units/unit'
 import { BUILDING_DEFS, canPlaceOn, totalCost, type BuildingId } from './world/buildings'
-import { affinityBirthWeights, cityBonuses, evaluateCity, type CityStats } from './world/city'
+import { affinityBirthWeights, cityBonuses, evaluateCity, isUnlocked, type CityStats } from './world/city'
+import { troopEconomy } from './synergy'
 import { hexKey, type Hex } from './world/hex'
 import { frontier, generateMap, ownedTiles, tileAt, type WorldMap } from './world/map'
 import { RESOURCE_LABEL, TERRAIN_DEFS, emptyStock, type Cost, type Material, type Stock } from './world/terrain'
@@ -73,8 +74,6 @@ export interface GameState {
   muster: Citizen[]
   troop: Unit[]
   bench: Unit[]
-  tasks: Task[]
-  deedDone: boolean
   /** Muster rerolls made this turn (each costs more). */
   rerolls: number
   /** This round's opponent, known from turn 1. */
@@ -126,15 +125,25 @@ export function moraleMult(morale: number): number {
   return m.outputAtZero + (m.outputAtMax - m.outputAtZero) * (morale / m.max)
 }
 
-/** What your fields actually produce this turn: city yields × morale. */
-export function effectiveYields(s: Pick<GameState, 'map' | 'morale'>): Record<keyof CityStats['yields'], number> {
+type EconView = Pick<GameState, 'map' | 'morale' | 'troop'>
+
+/** What your fields actually produce this turn: city yields × morale × tier-1 troop synergies. */
+export function effectiveYields(s: EconView): Record<keyof CityStats['yields'], number> {
   const mult = moraleMult(s.morale)
-  const raw = city(s).yields
-  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, Math.round(v * mult)])) as Record<keyof CityStats['yields'], number>
+  const c = city(s)
+  const eco = troopEconomy(s.troop, c.affinityLevels)
+  return Object.fromEntries(
+    Object.entries(c.yields).map(([k, v]) => [k, Math.round(v * mult * (1 + (eco.yieldPct[k as keyof typeof eco.yieldPct] ?? 0)))]),
+  ) as Record<keyof CityStats['yields'], number>
+}
+
+/** Morale regained each turn: base regen plus Light-style troop synergies. */
+export function moraleRegen(s: EconView): number {
+  return CONFIG.morale.regen + troopEconomy(s.troop, city(s).affinityLevels).morale
 }
 
 /** Fractional population growth this turn, driven by (morale-adjusted) food. */
-export function growthRate(s: Pick<GameState, 'map' | 'morale'>): number {
+export function growthRate(s: EconView): number {
   const { growthBase, growthPerFood, maxGrowth } = CONFIG.economy
   return Math.min(maxGrowth, growthBase + growthPerFood * effectiveYields(s).food)
 }
@@ -164,8 +173,6 @@ export function newGame(seed: number = Date.now() >>> 0): GameState {
     muster: [],
     troop: [],
     bench: [],
-    tasks: [],
-    deedDone: false,
     rerolls: 0,
     ghost: null,
     battle: null,
@@ -182,7 +189,7 @@ export function chooseSpecies(state: GameState, id: SpeciesId): GameState {
     s.stock.gold = CONFIG.start.gold
     const home = TERRAIN_DEFS[s.map.homeBiome].resource
     if (home !== 'food' && home !== 'gold') s.stock[home] += CONFIG.start.homeResource
-    s.muster = birthCitizens(birthContext(s), Math.max(6, troopSize(s)), ctx.rng, ctx.makeUid, CONFIG.muster.lifespan - 1)
+    s.muster = birthCitizens(birthContext(s), musterSize(s.species), ctx.rng, ctx.makeUid)
     s.phase = 'turn'
     startRound(s, ctx)
     log(s, `The ${SPECIES[id].name} settle in ${TERRAIN_DEFS[s.map.homeBiome].label.toLowerCase()} country.`)
@@ -192,13 +199,11 @@ export function chooseSpecies(state: GameState, id: SpeciesId): GameState {
 function startRound(s: GameState, ctx: Ctx) {
   s.turn = 0
   s.ghost = aiGhosts.find(s.round, ctx.rng, ctx.makeUid)
-  startTurn(s, ctx)
+  startTurn(s)
 }
 
-function startTurn(s: GameState, ctx: Ctx) {
-  s.deedDone = false
+function startTurn(s: GameState) {
   s.rerolls = 0
-  s.tasks = rollTasks(s.map, s.round, s.turn, ctx.rng)
 }
 
 const findOwned = (s: GameState, uid: string) => s.troop.find((u) => u.uid === uid) ?? s.bench.find((u) => u.uid === uid)
@@ -244,11 +249,12 @@ export function claimTile(state: GameState, h: Hex): GameState {
 
 // ── Buildings ─────────────────────────────────────────────────────────
 
-export type BuildBlock = 'not-owned' | 'occupied' | 'terrain' | 'unique' | 'cost' | null
+export type BuildBlock = 'locked' | 'not-owned' | 'occupied' | 'terrain' | 'unique' | 'cost' | null
 
 export function buildBlock(s: GameState, h: Hex, id: BuildingId): BuildBlock {
   const t = tileAt(s.map, h)
   const def = BUILDING_DEFS[id]
+  if (def.affinity && !isUnlocked(def.affinity, city(s).affinityLevels)) return 'locked'
   if (!t?.owned) return 'not-owned'
   if (t.building) return 'occupied'
   if (!canPlaceOn(def, t.terrain)) return 'terrain'
@@ -354,8 +360,7 @@ export function rerollMuster(state: GameState): GameState {
   return produce(state, (s, ctx) => {
     s.morale -= rerollCost(s)
     s.rerolls++
-    const n = Math.max(s.muster.length, birthsPerTurn(s.population, s.species))
-    s.muster = birthCitizens(birthContext(s), n, ctx.rng, ctx.makeUid, absTurn(s) + CONFIG.muster.lifespan)
+    s.muster = birthCitizens(birthContext(s), musterSize(s.species), ctx.rng, ctx.makeUid)
     log(s, 'Called a new muster.')
   })
 }
@@ -392,15 +397,26 @@ export function canUpgrade(s: GameState, uid: string): boolean {
   const u = findOwned(s, uid)
   if (!u || !managing(s)) return false
   const cost = unitUpgradeCost(s, u)
-  return cost !== null && s.stock.gold >= cost
+  return cost !== null && canAfford(s, cost)
 }
 
 export function upgradeUnit(state: GameState, uid: string): GameState {
   if (!canUpgrade(state, uid)) return state
   return produce(state, (s) => {
     const u = findOwned(s, uid)!
-    s.stock.gold -= unitUpgradeCost(s, u)!
+    pay(s, unitUpgradeCost(s, u)!)
     u.level++
+    log(s, `${u.name} reached level ${u.level}.`)
+  })
+}
+
+/** Give a unit in your troop or bench a new name (1–32 characters). */
+export function renameUnit(state: GameState, uid: string, name: string): GameState {
+  const clean = name.trim().replace(/\s+/g, ' ').slice(0, 32)
+  const u = findOwned(state, uid)
+  if (!clean || !u || u.name === clean) return state
+  return produce(state, (s) => {
+    findOwned(s, uid)!.name = clean
   })
 }
 
@@ -414,53 +430,14 @@ export function releaseUnit(state: GameState, uid: string): GameState {
   })
 }
 
-// ── Deeds ─────────────────────────────────────────────────────────────
+// ── Camps ─────────────────────────────────────────────────────────────
 
-export function canDoTask(s: GameState, id: string): boolean {
-  const t = s.tasks.find((x) => x.id === id)
-  if (!t || s.phase !== 'turn' || s.deedDone) return false
-  if (t.kind === 'drill') return s.troop.some((u) => u.level < CONFIG.level.max)
-  return true
-}
-
-export function doTask(state: GameState, id: string): GameState {
-  if (!canDoTask(state, id)) return state
-  return produce(state, (s, ctx) => {
-    const t = s.tasks.find((x) => x.id === id)!
-    switch (t.kind) {
-      case 'forage':
-        for (const r of t.resources) s.stock[r] += t.amount
-        break
-      case 'caravan':
-        s.stock.gold += t.gold
-        break
-      case 'festival':
-        s.morale = clampMorale(s.morale + t.morale)
-        break
-      case 'census':
-        s.muster.push(...birthCitizens(birthContext(s), t.citizens, ctx.rng, ctx.makeUid, absTurn(s) + CONFIG.muster.lifespan))
-        break
-      case 'prospect':
-        s.stock[t.resource] += t.amount
-        break
-      case 'drill': {
-        const eligible = s.troop.filter((u) => u.level < CONFIG.level.max)
-        ctx.rng.pick(eligible).level++
-        break
-      }
-    }
-    s.deedDone = true
-    log(s, `${taskTitle(t)}.`)
-  })
-}
-
-export type RaidBlock = 'no-camp' | 'not-frontier' | 'deed-used' | 'no-troop' | null
+export type RaidBlock = 'no-camp' | 'not-frontier' | 'no-troop' | null
 
 export function raidBlock(s: GameState, h: Hex): RaidBlock {
   const t = tileAt(s.map, h)
   if (!t?.camp) return 'no-camp'
   if (!frontier(s.map).some((f) => f.q === h.q && f.r === h.r)) return 'not-frontier'
-  if (s.deedDone) return 'deed-used'
   if (s.troop.length === 0) return 'no-troop'
   return null
 }
@@ -489,7 +466,6 @@ export function raidCamp(state: GameState, h: Hex): GameState {
         claimed: won ? { q: h.q, r: h.r } : null,
       },
     }
-    s.deedDone = true
     s.phase = 'battle'
   })
 }
@@ -523,15 +499,14 @@ export function endTurn(state: GameState): GameState {
       s.stock.gold += Math.min(max, Math.floor(s.stock.gold / per))
     }
     s.population = Math.round(s.population * (1 + growthRate(s)))
-    s.morale = clampMorale(s.morale + CONFIG.morale.regen)
+    s.morale = clampMorale(s.morale + moraleRegen(s))
 
-    const now = absTurn(s)
-    s.muster = s.muster.filter((m) => m.leavesAfter > now)
-    s.muster.push(...birthCitizens(birthContext(s), birthsPerTurn(s.population, s.species), ctx.rng, ctx.makeUid, now + CONFIG.muster.lifespan))
+    // Whoever didn't answer this muster goes home; a fresh one is called.
+    s.muster = birthCitizens(birthContext(s), musterSize(s.species), ctx.rng, ctx.makeUid)
 
     if (!isLastTurn(s)) {
       s.turn++
-      startTurn(s, ctx)
+      startTurn(s)
       return
     }
 

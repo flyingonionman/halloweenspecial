@@ -6,8 +6,9 @@
  * the lowest tier and lowest level of their components.
  */
 import { CONFIG } from './config'
-import { EFFECT_KEYS, SYNERGY_DEFS, type Affinity, type AffinityPoints, type EffectKey, type Effects, type SynergyDef } from './affinities'
+import { AFFINITY_DEFS, EFFECT_KEYS, SYNERGY_DEFS, type Affinity, type AffinityPoints, type EffectKey, type Effects, type SynergyDef } from './affinities'
 import type { TeamBonuses } from './world/city'
+import type { ResourceId } from './world/terrain'
 import { TYPE_DEFS, type DamageKind, type Stats } from './units/types'
 import { unitStats, type Unit } from './units/unit'
 
@@ -70,12 +71,27 @@ export interface CombatStats extends Stats, Record<Exclude<EffectKey, `${string}
 }
 
 /** Final stats: unit × military buildings × research level + attunement of its affinities × active synergies it carries. */
+/** City-side bonuses from tier-1 synergies in the troop: extra resource yield and morale per turn. */
+export function troopEconomy(troop: readonly Unit[], levels: Partial<Record<Affinity, number>> = {}) {
+  const yieldPct: Partial<Record<ResourceId, number>> = {}
+  let morale = 0
+  for (const syn of computeSynergies(troop, levels)) {
+    const eco = AFFINITY_DEFS[syn.def.id].economy
+    if (!eco || syn.tier < 1) continue
+    const mult = CONFIG.affinity.levelMult[syn.level] ?? 1
+    if ('resource' in eco) yieldPct[eco.resource] = (yieldPct[eco.resource] ?? 0) + eco.values[syn.tier - 1]! * mult
+    else morale += Math.round(eco.morale[syn.tier - 1]! * mult)
+  }
+  return { yieldPct, morale }
+}
+
 export function combatStats(unit: Unit, synergies: readonly ActiveSynergy[], bonuses?: TeamBonuses): CombatStats {
   const base = unitStats(unit)
   const fx: Record<EffectKey, number> = Object.fromEntries(EFFECT_KEYS.map((k) => [k, 0])) as Record<EffectKey, number>
 
   for (const syn of synergies) {
-    if (syn.tier < 1 || !syn.def.components.some((a) => (unit.affinities[a] ?? 0) > 0)) continue
+    const team = syn.def.components.some((a) => AFFINITY_DEFS[a].team)
+    if (syn.tier < 1 || (!team && !syn.def.components.some((a) => (unit.affinities[a] ?? 0) > 0))) continue
     for (const [k, v] of Object.entries(syn.effects) as [EffectKey, number][]) fx[k] += v
   }
 
@@ -107,5 +123,6 @@ export function combatStats(unit: Unit, synergies: readonly ActiveSynergy[], bon
     thorns: fx.thorns,
     doubleStrike: Math.min(0.75, fx.doubleStrike),
     lifesteal: fx.lifesteal,
+    chain: Math.min(1, fx.chain),
   }
 }

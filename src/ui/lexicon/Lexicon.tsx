@@ -5,23 +5,24 @@
 import { useEffect, useState } from 'react'
 import {
   AFFINITIES,
+  AFFINITY_DEFS,
   AFFINITY_LABEL,
-  AFFINITY_RESOURCE,
-  AFFINITY_TERRAIN,
-  BASE_SYNERGIES,
   BUILDING_DEFS,
-  COMPOUND_SYNERGIES,
   CONFIG,
   EFFECT_TEXT,
   RARITIES,
   RESOURCE_LABEL,
   SPECIES,
   SPECIES_IDS,
+  SYNERGY_DEFS,
   TERRAINS,
   TERRAIN_DEFS,
   TYPE_DEFS,
   UNIT_TYPES,
   academyId,
+  affinitiesOfTier,
+  city,
+  isUnlocked,
   type Affinity,
   type AdjacencyRule,
   type BuildingDef,
@@ -30,6 +31,7 @@ import {
   type SynergyDef,
 } from '../../game'
 import { fmtOutputs } from '../format'
+import { useGame } from '../useGame'
 import {
   AFFINITY_COLOR,
   AFFINITY_GLYPH,
@@ -147,115 +149,109 @@ function tierText(def: SynergyDef) {
   ))
 }
 
-// ── Affinities ────────────────────────────────────────────────────────
-
-/** Circle order chosen so compound pairs sit next to each other where possible. */
-const RING: Affinity[] = ['arcane', 'sword', 'shield', 'earth', 'fire', 'bow', 'wind', 'frost']
+// ── Affinities: the research tree ─────────────────────────────────────
 
 function Affinities() {
-  const W = 520
-  const H = 420
-  const cx = W / 2
-  const cy = H / 2
-  const R = 160
-  const pos = Object.fromEntries(
-    RING.map((a, i) => {
-      const t = (i / RING.length) * Math.PI * 2 - Math.PI / 2
-      return [a, [cx + Math.cos(t) * R, cy + Math.sin(t) * R]]
-    }),
-  ) as Record<Affinity, [number, number]>
+  const [s] = useGame()
+  const levels = city(s).affinityLevels
+  const COL_W = 210
+  const ROW_H = 64
+  const tiers = [1, 2, 3, 4].map((t) => affinitiesOfTier(t))
+  const rows = Math.max(...tiers.map((t) => t.length))
+  const W = COL_W * 4
+  const H = rows * ROW_H + 40
+  const pos = {} as Record<Affinity, [number, number]>
+  tiers.forEach((list, ti) => {
+    const offset = ((rows - list.length) * ROW_H) / 2
+    list.forEach((a, i) => (pos[a] = [ti * COL_W + 70, 40 + offset + i * ROW_H + ROW_H / 2 - 12]))
+  })
 
   return (
     <div className="lex-affinities">
       <p className="lede">
-        Units carry affinity points. Points across your troop unlock a synergy’s <b>tier</b> at {CONFIG.affinity.thresholds.join(' / ')} points; the affinity’s academy
-        level sets its <b>strength</b> ({CONFIG.affinity.levelMult.map((m, i) => `Lv${i} ×${m}`).join(', ')}). Lines join affinities that combine into a compound synergy,
-        whose tier is the lower of the two.
+        Tier 1 comes from your land (or a Church / Crypt) and mostly feeds your economy. Every higher affinity unlocks when its parents’ academies reach Lv
+        {CONFIG.affinity.unlockLevel}: then its academy can be built on its site and its citizens start being born. Troop points set each synergy’s <b>tier</b> (
+        {CONFIG.affinity.thresholds.join(' / ')}); its academy level sets the <b>strength</b>. Most synergies empower only the units carrying the affinity; ones marked <i>whole troop</i> empower everyone.
       </p>
       <div className="lex-map-wrap">
-        <svg className="lex-map" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Affinity combination map">
-          {COMPOUND_SYNERGIES.map((c) => {
-            const [a, b] = c.components as [Affinity, Affinity]
-            const [x1, y1] = pos[a]
-            const [x2, y2] = pos[b]
-            const mx = (x1 + x2) / 2
-            const my = (y1 + y2) / 2
-            // push labels outward from the centre so chords stay readable
-            const ox = (mx - cx) * 0.12
-            const oy = (my - cy) * 0.12
-            return (
-              <g key={c.id} data-help={`synergy:${c.id}`} className="lex-edge">
-                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={`url(#g-${c.id})`} strokeWidth={4} strokeLinecap="round" />
-                <defs>
-                  <linearGradient id={`g-${c.id}`} gradientUnits="userSpaceOnUse" x1={x1} y1={y1} x2={x2} y2={y2}>
-                    <stop offset="0" stopColor={AFFINITY_COLOR[a]} />
-                    <stop offset="1" stopColor={AFFINITY_COLOR[b]} />
-                  </linearGradient>
-                </defs>
-                <rect x={mx + ox - 42} y={my + oy - 11} width={84} height={22} rx={3} className="lex-edge-label-bg" />
-                <text x={mx + ox} y={my + oy + 5} textAnchor="middle" className="lex-edge-label">
-                  {c.name}
-                </text>
-              </g>
-            )
-          })}
-          {RING.map((a) => {
+        <svg className="lex-tree-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Affinity research tree">
+          {[1, 2, 3, 4].map((t) => (
+            <text key={t} x={(t - 1) * COL_W + 70} y={18} textAnchor="middle" className="lex-tier-label">
+              TIER {t}
+            </text>
+          ))}
+          {AFFINITIES.flatMap((a) =>
+            AFFINITY_DEFS[a].parents.map((p) => {
+              const [x1, y1] = pos[p]
+              const [x2, y2] = pos[a]
+              const mx = (x1 + x2) / 2
+              return (
+                <path
+                  key={`${p}-${a}`}
+                  d={`M${x1 + 26} ${y1} C${mx} ${y1}, ${mx} ${y2}, ${x2 - 26} ${y2}`}
+                  stroke={AFFINITY_COLOR[p]}
+                  strokeOpacity={0.55}
+                  strokeWidth={2}
+                  fill="none"
+                />
+              )
+            }),
+          )}
+          {AFFINITIES.map((a) => {
             const [x, y] = pos[a]
+            const open = isUnlocked(a, levels)
+            const d = AFFINITY_DEFS[a]
             return (
-              <g key={a} data-help={`affinity:${a}`} className="lex-node">
-                <circle cx={x} cy={y} r={30} fill="#1a1512" stroke={AFFINITY_COLOR[a]} strokeWidth={2.5} />
-                <text x={x} y={y + 2} textAnchor="middle" className="lex-node-glyph" fill={AFFINITY_COLOR[a]}>
+              <g key={a} data-help={`affinity:${a}`} className={`lex-node ${open ? '' : 'locked'}`}>
+                <circle cx={x} cy={y} r={24} fill="#1a1512" stroke={AFFINITY_COLOR[a]} strokeWidth={d.team ? 3.5 : 2} strokeDasharray={open ? undefined : '4 3'} />
+                <text x={x} y={y + 6} textAnchor="middle" className="lex-node-glyph" fill={AFFINITY_COLOR[a]}>
                   {AFFINITY_GLYPH[a]}
                 </text>
-                <text x={x} y={y + 18} textAnchor="middle" className="lex-node-label">
+                <text x={x + 32} y={y + 4} className="lex-node-name">
                   {AFFINITY_LABEL[a]}
                 </text>
+                {(levels[a] ?? 0) > 0 && (
+                  <text x={x + 32} y={y + 18} className="lex-node-sub">
+                    Lv{levels[a]}
+                  </text>
+                )}
               </g>
             )
           })}
         </svg>
       </div>
 
-      <h3 className="section-title">Base synergies</h3>
-      <div className="lex-grid">
-        {BASE_SYNERGIES.map((d) => {
-          const a = d.components[0]!
-          return (
-            <div key={d.id} className="lex-card" style={{ '--accent': AFFINITY_COLOR[a] } as React.CSSProperties}>
-              <h4 data-help={`affinity:${a}`}>
-                <span style={{ color: AFFINITY_COLOR[a] }}>{AFFINITY_GLYPH[a]}</span> {d.name}
-              </h4>
-              <p className="muted">
-                Born from {TERRAIN_DEFS[AFFINITY_TERRAIN[a]].label.toLowerCase()} · built with {RESOURCE_LABEL[AFFINITY_RESOURCE[a]].toLowerCase()} · combines with{' '}
-                {COMPOUND_SYNERGIES.filter((c) => c.components.includes(a))
-                  .map((c) => `${AFFINITY_LABEL[c.components.find((x) => x !== a)!]} → ${c.name}`)
-                  .join(', ') || 'nothing'}
-              </p>
-              {tierText(d)}
-            </div>
-          )
-        })}
-      </div>
-
-      <h3 className="section-title">Compound synergies</h3>
-      <div className="lex-grid">
-        {COMPOUND_SYNERGIES.map((d) => (
-          <div key={d.id} className="lex-card compound">
-            <h4 data-help={`synergy:${d.id}`}>
-              {d.components.map((a, i) => (
-                <span key={a}>
-                  {i ? ' + ' : ''}
-                  <span style={{ color: AFFINITY_COLOR[a] }}>
-                    {AFFINITY_GLYPH[a]} {AFFINITY_LABEL[a]}
-                  </span>
-                </span>
-              ))}{' '}
-              → {d.name}
-            </h4>
-            {tierText(d)}
+      {[1, 2, 3, 4].map((t) => (
+        <section key={t}>
+          <h3 className="section-title">Tier {t}</h3>
+          <div className="lex-grid">
+            {affinitiesOfTier(t).map((a) => {
+              const d = AFFINITY_DEFS[a]
+              return (
+                <div key={a} className="lex-card" style={{ '--accent': AFFINITY_COLOR[a] } as React.CSSProperties}>
+                  <h4 data-help={`affinity:${a}`}>
+                    <span style={{ color: AFFINITY_COLOR[a] }}>{AFFINITY_GLYPH[a]}</span> {d.label} {d.team && <small className="lex-tag">whole troop</small>}
+                  </h4>
+                  <p className="muted">
+                    {d.parents.length ? `${d.parents.map((p) => AFFINITY_LABEL[p]).join(' + ')} → ` : d.land ? `${d.land.map((x) => TERRAIN_DEFS[x].label).join(', ')} land · ` : ''}
+                    {d.academy} on {d.site === 'any' ? 'any land' : d.site.map((x) => TERRAIN_DEFS[x].label).join(', ')}
+                  </p>
+                  {d.economy && (
+                    <div className="lex-tiers">
+                      {('resource' in d.economy ? d.economy.values : d.economy.morale).map((v, i) => (
+                        <span key={i}>
+                          <small>T{i + 1}</small> {'resource' in d.economy! ? `+${Math.round(v * 100)}% ${RESOURCE_LABEL[d.economy.resource]}` : `+${v} morale/turn`}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {tierText(SYNERGY_DEFS.find((x) => x.id === a)!)}
+                </div>
+              )
+            })}
           </div>
-        ))}
-      </div>
+        </section>
+      ))}
     </div>
   )
 }
@@ -264,110 +260,83 @@ function Affinities() {
 
 function Buildings() {
   const generic = Object.values(BUILDING_DEFS).filter((b) => b.kind === 'civic' || b.kind === 'military' || b.kind === 'capital')
+  const extractors = Object.values(BUILDING_DEFS).filter((b) => b.kind === 'extractor')
   return (
     <div>
       <p className="lede">
-        Each affinity has a home terrain, an extractor that works it, and an academy that sets the affinity’s level. Generic buildings work anywhere. Adjacency rules (⬡) are how
-        placement pays off.
+        Academies are the research tree: one per affinity, built on its site from its materials. Extractors turn terrain into materials. Civic and military buildings work
+        anywhere. Adjacency rules (⬡) are how placement pays off.
       </p>
-      <h3 className="section-title">By affinity</h3>
-      <div className="lex-aff-buildings">
-        {AFFINITIES.map((a) => (
-          <AffinityBuildings key={a} a={a} />
+      {[1, 2, 3, 4].map((t) => (
+        <section key={t}>
+          <h3 className="section-title">Tier {t} academies</h3>
+          <div className="lex-grid">
+            {affinitiesOfTier(t).map((a) => (
+              <AcademyCard key={a} a={a} />
+            ))}
+          </div>
+        </section>
+      ))}
+      <h3 className="section-title">Extractors</h3>
+      <div className="lex-grid">
+        {extractors.map((b) => (
+          <BuildingCard key={b.id} b={b} />
         ))}
       </div>
-
-      <h3 className="section-title">Generic</h3>
+      <h3 className="section-title">Civic & military</h3>
       <div className="lex-grid">
-        {generic.map((b) => {
-          const feeders = fedBy((r) => 'building' in r.per && r.per.building === b.id, b.id)
-          return (
-            <div key={b.id} className="lex-card" style={{ '--accent': KIND_COLOR[b.kind] } as React.CSSProperties}>
-              <h4 data-help={`building:${b.id}`}>
-                {b.name} <small className="lex-kind">{b.kind}</small>
-              </h4>
-              <p className="muted">{b.text}</p>
-              <div className="lex-row">
-                <span className="label">Cost</span> {b.kind === 'capital' ? <span className="muted">—</span> : <Cost cost={b.cost(1)} />}
-                <span className="label">Gives</span> <span className="mono">{fmtOutputs(b.base)}</span>
-              </div>
-              <div className="lex-row">
-                <span className="label">On</span> {b.allowed === 'any' ? 'any land' : b.allowed.length ? b.allowed.map((t) => TERRAIN_DEFS[t].label).join(', ') : 'start only'}
-                {b.unique && <span className="lex-tag">unique</span>}
-              </div>
-              <Adjacency def={b} />
-              {feeders.length > 0 && <p className="lex-feeds">Boosts neighbouring {feeders.map((f) => f.name).join(', ')}.</p>}
-            </div>
-          )
-        })}
+        {generic.map((b) => (
+          <BuildingCard key={b.id} b={b} />
+        ))}
       </div>
     </div>
   )
 }
 
-function AffinityBuildings({ a }: { a: Affinity }) {
-  const terrain = AFFINITY_TERRAIN[a]
-  const res = AFFINITY_RESOURCE[a]
-  const extractor = Object.values(BUILDING_DEFS).find((b) => b.kind === 'extractor' && b.allowed !== 'any' && b.allowed.includes(terrain))!
-  const academy = BUILDING_DEFS[academyId(a)]
-  const extractorFeeds = fedBy((r) => 'building' in r.per && r.per.building === extractor.id, extractor.id)
-  const terrainFeeds = fedBy((r) => 'terrain' in r.per && r.per.terrain === terrain).filter((b) => b.id !== academy.id)
-  const A = CONFIG.affinity
-
+function BuildingCard({ b }: { b: BuildingDef }) {
+  const feeders = fedBy((r) => 'building' in r.per && r.per.building === b.id, b.id)
   return (
-    <div className="lex-aff-card" style={{ '--accent': AFFINITY_COLOR[a] } as React.CSSProperties}>
-      <header>
-        <span className="lex-aff-glyph" style={{ color: AFFINITY_COLOR[a] }}>
-          {AFFINITY_GLYPH[a]}
-        </span>
-        <h4 data-help={`affinity:${a}`}>{AFFINITY_LABEL[a]}</h4>
-        <span className="lex-chain">
-          <span data-help={`terrain:${terrain}`}>
-            <i className="lex-hex" style={{ background: TERRAIN_COLOR[terrain] }} /> {TERRAIN_DEFS[terrain].label}
-          </span>
-          →
-          <span data-help={`resource:${res}`} style={{ color: RESOURCE_COLOR[res] }}>
-            {RESOURCE_GLYPH[res]} {RESOURCE_LABEL[res]}
-          </span>
-        </span>
-      </header>
-
-      <div className="lex-tree">
-        <div className="lex-node-card" data-help={`building:${extractor.id}`}>
-          <span className="label">Extractor</span>
-          <b>{extractor.name}</b>
-          <Cost cost={extractor.cost(1)} />
-          <span className="mono">{fmtOutputs(extractor.base)}</span>
-          <Adjacency def={extractor} />
-          {extractorFeeds.length > 0 && <p className="lex-feeds">Boosts neighbouring {extractorFeeds.map((f) => f.name).join(', ')}.</p>}
-        </div>
-
-        <div className="lex-academy" data-help={`building:${academy.id}`}>
-          <span className="label">Academy upgrade tree</span>
-          <b>{academy.name}</b>
-          <ol className="lex-levels">
-            {Array.from({ length: academy.maxLevel }, (_, i) => {
-              const L = i + 1
-              return (
-                <li key={L}>
-                  <span className="lex-lv">Lv{L}</span>
-                  <Cost cost={academy.cost(L)} />
-                  <span className="lex-lv-gives">
-                    synergies ×{A.levelMult[L]} · carriers +{pct(A.combatBonusPerLevel * L)} HP/ATK · births +{A.birthWeight.perLevel * L} weight
-                  </span>
-                </li>
-              )
-            })}
-          </ol>
-          <Adjacency def={academy} />
-          <p className="muted">Each attunement: +{pct(A.combatBonusPerAttune)} HP/ATK for carriers, +{A.birthWeight.perAttune} birth weight.</p>
-        </div>
+    <div className="lex-card" style={{ '--accent': KIND_COLOR[b.kind] } as React.CSSProperties}>
+      <h4 data-help={`building:${b.id}`}>
+        {b.name} <small className="lex-kind">{b.kind}</small>
+      </h4>
+      <p className="muted">{b.text}</p>
+      <div className="lex-row">
+        <span className="label">Cost</span> {b.kind === 'capital' ? <span className="muted">—</span> : <Cost cost={b.cost(1)} />}
+        <span className="label">Gives</span> <span className="mono">{fmtOutputs(b.base)}</span>
       </div>
-      {terrainFeeds.length > 0 && (
-        <p className="lex-feeds">
-          {TERRAIN_DEFS[terrain].label} tiles also boost neighbouring {terrainFeeds.map((f) => f.name).join(', ')}.
-        </p>
-      )}
+      <div className="lex-row">
+        <span className="label">On</span> {b.allowed === 'any' ? 'any land' : b.allowed.length ? b.allowed.map((t) => TERRAIN_DEFS[t].label).join(', ') : 'start only'}
+        {b.unique && <span className="lex-tag">unique</span>}
+      </div>
+      <Adjacency def={b} />
+      {feeders.length > 0 && <p className="lex-feeds">Boosts neighbouring {feeders.map((f) => f.name).join(', ')}.</p>}
+    </div>
+  )
+}
+
+function AcademyCard({ a }: { a: Affinity }) {
+  const d = AFFINITY_DEFS[a]
+  const b = BUILDING_DEFS[academyId(a)]
+  const A = CONFIG.affinity
+  return (
+    <div className="lex-card" style={{ '--accent': AFFINITY_COLOR[a] } as React.CSSProperties}>
+      <h4 data-help={`building:${b.id}`}>
+        <span style={{ color: AFFINITY_COLOR[a] }}>{AFFINITY_GLYPH[a]}</span> {d.academy}
+      </h4>
+      <p className="muted">
+        {d.parents.length ? `Unlocks at ${d.parents.map((p) => `${AFFINITY_LABEL[p]} Lv${A.unlockLevel}`).join(' + ')}. ` : ''}
+        Built on {d.site === 'any' ? 'any land' : d.site.map((x) => TERRAIN_DEFS[x].label).join(', ')}; attunes to {TERRAIN_DEFS[d.attune].label.toLowerCase()}.
+      </p>
+      <ol className="lex-levels">
+        {Array.from({ length: b.maxLevel }, (_, i) => (
+          <li key={i}>
+            <span className="lex-lv">Lv{i + 1}</span>
+            <Cost cost={b.cost(i + 1)} />
+            <span className="lex-lv-gives">synergies ×{A.levelMult[i + 1]}</span>
+          </li>
+        ))}
+      </ol>
     </div>
   )
 }

@@ -1,0 +1,466 @@
+/* ══ Turn layout v2: tabbed rail · board · tabbed side ═══════════ */
+
+.turn {
+  grid-template-columns: 280px 1fr 420px;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.rail-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px 14px;
+}
+
+.rail .side-tabs button,
+.side .side-tabs button {
+  font-size: 15px;
+}
+
+.rail .section-title {
+  margin: 14px 0 6px;
+  font-size: 15px;
+}
+
+/* population */
+
+.pop-hero {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  background: var(--ink-2);
+}
+
+.pop-hero b {
+  font-family: var(--display);
+  font-weight: normal;
+  font-size: 34px;
+  line-height: 1.05;
+}
+
+.pop-sub {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--bone-dim);
+  text-transform: capitalize;
+}
+
+.rarity-odds li {
+  grid-template-columns: 70px 1fr 48px;
+  font-size: 12.5px;
+}
+
+.tier-climb {
+  margin: 0;
+  padding: 6px 10px;
+}
+
+.aff-odds li {
+  grid-template-columns: 16px 70px 1fr 30px 26px;
+}
+
+/* resources */
+
+.res-tab .morale-box {
+  margin-top: 0;
+}
+
+.stock-grid {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+}
+
+.stock-grid li {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 6px;
+  align-items: baseline;
+  padding: 4px 6px;
+  border: 1px solid var(--line-soft);
+  background: var(--ink-2);
+  font-size: 12.5px;
+}
+
+.stock-grid li.none {
+  opacity: 0.35;
+}
+
+.stock-grid .res-glyph {
+  grid-row: span 2;
+  align-self: center;
+}
+
+.stock-grid .res-amt {
+  font-size: 14px;
+  text-align: right;
+}
+
+.stock-grid .res-delta {
+  grid-column: 3;
+  font-size: 10.5px;
+}
+
+.res-tab .city-stats {
+  margin-top: 10px;
+}
+
+.trade-box {
+  margin-top: 10px;
+}
+
+.trade-box .trade {
+  margin-top: 4px;
+}
+
+.res-tab .chronicle {
+  margin-top: 10px;
+  font-size: 11.5px;
+}
+
+/* side body: tabs fill the height; content scrolls only if it truly must */
+
+.side-body {
+  padding: 12px 14px 16px;
+}
+
+/* build tab */
+
+.build-tab .bp-tabs {
+  pointer-events: auto;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.build-tab .bp-tabs button {
+  background: none;
+  border: none;
+  padding: 4px 10px 8px;
+  font-size: 15px;
+}
+
+.build-tab .bp-tabs button.on {
+  box-shadow: inset 0 -2px 0 var(--kind);
+}
+
+.build-tab .bp-gallery {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 0;
+  overflow: visible;
+}
+
+.build-tab .bp-card {
+  width: auto;
+  padding: 8px 6px 6px;
+}
+
+.bp-card-art {
+  width: 40px;
+  height: 40px;
+  font-size: 22px;
+}
+
+.bp-card.locked {
+  opacity: 0.55;
+  filter: grayscale(0.6);
+}
+
+.bp-tier {
+  margin: 4px 0 6px;
+  font-family: var(--display);
+  font-weight: normal;
+  font-size: 14px;
+  color: var(--bone-faint);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.bp-tiers section + section {
+  margin-top: 10px;
+}
+
+/* building detail, stacked for the side panel */
+
+.side .bp-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: auto;
+}
+
+.side .bp-detail header {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.side .bp-detail h3 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: normal;
+  font-size: 24px;
+}
+
+.side .bp-model {
+  height: 190px;
+  border: 1px solid var(--line-soft);
+}
+
+.bp-place {
+  width: 100%;
+}
+
+.bp-recipe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  padding: 6px 10px;
+  border: 1px solid var(--line-soft);
+  font-size: 13px;
+}
+
+.bp-recipe.locked {
+  border-color: rgba(196, 60, 60, 0.5);
+}
+
+.bp-parent {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.side .bp-text {
+  margin: 0;
+  font-size: 13px;
+}
+
+/* inline unit sheets (muster & troop details) */
+
+.sheet.inline {
+  width: 100%;
+  max-height: none;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.us-back {
+  margin-bottom: 8px;
+}
+
+.sheet.inline .sheet-head {
+  grid-template-columns: auto 1fr;
+}
+
+.sheet.inline .sheet-head h3 {
+  font-size: 22px;
+}
+
+/* lexicon tree */
+
+.lex-tree-svg {
+  width: 100%;
+  max-width: 900px;
+  height: auto;
+}
+
+.lex-tier-label {
+  font-family: var(--body);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  fill: var(--bone-faint);
+}
+
+.lex-node-name {
+  font-family: var(--display);
+  font-size: 15px;
+  fill: var(--bone);
+}
+
+.lex-node-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--gold);
+}
+
+.lex-node.locked .lex-node-name {
+  fill: var(--bone-faint);
+}
+
+@media (max-width: 1280px) {
+  .turn {
+    grid-template-columns: 240px 1fr 360px;
+  }
+}
+
+/* tier headings inside affinity / synergy lists */
+.aff-tier,
+.synergies li.aff-tier {
+  display: block;
+  grid-column: 1 / -1;
+  margin: 6px 0 1px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--bone-faint);
+}
+
+.aff-odds li.aff-tier {
+  display: block;
+}
+
+.rarity-odds li {
+  grid-template-columns: 82px 1fr 58px;
+}
+
+.rarity-odds li.locked .ro-pct {
+  white-space: nowrap;
+}
+
+.rarity-odds li.current .ro-name::after {
+  content: '';
+}
+
+.rarity-odds li.current .ro-name {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* build list: flat rows — name left, cost + production right */
+.bp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bp-row {
+  --accent: var(--bone);
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-soft);
+  border-left: 2px solid var(--accent);
+  background: var(--ink-2);
+  text-align: left;
+}
+
+.bp-row:hover {
+  border-color: var(--bone-dim);
+  border-left-color: var(--accent);
+  background: var(--ink-3);
+}
+
+.bp-row.armed {
+  border-color: var(--ember);
+}
+
+.bp-row.poor .bp-row-name {
+  color: var(--bone-faint);
+}
+
+.bp-row-glyph {
+  font-size: 16px;
+  text-align: center;
+}
+
+.bp-row-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bp-row-owned {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--moss);
+}
+
+.bp-row-note {
+  font-weight: 400;
+}
+
+.bp-row-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.bp-row-out {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--bone-dim);
+  white-space: nowrap;
+}
+
+.build-tab section + section {
+  margin-top: 8px;
+}
+
+/* level-up button + rename */
+.lvl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lvl-btn.hint .lvl-label {
+  color: var(--ember-hot);
+}
+
+.lvl-max {
+  font-size: 12px;
+  color: var(--bone-faint);
+}
+
+.us-name.editable {
+  cursor: text;
+}
+
+.us-pencil {
+  font-size: 14px;
+  color: var(--bone-faint);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.us-name.editable:hover .us-pencil {
+  opacity: 1;
+}
+
+.us-name-input {
+  width: 100%;
+  margin: 2px 0 6px;
+  padding: 2px 6px;
+  font-family: var(--display);
+  font-size: 22px;
+  color: var(--bone);
+  background: var(--ink-3);
+  border: 1px solid var(--ember);
+  outline: none;
+}

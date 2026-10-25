@@ -3,11 +3,11 @@
  * yields (before morale), the troop-wide combat bonuses, and affinity levels.
  */
 import { CONFIG } from '../config'
-import { AFFINITIES, type Affinity } from '../affinities'
+import { AFFINITIES, AFFINITY_DEFS, type Affinity } from '../affinities'
 import { BUILDING_DEFS, type BuildingId, type OutputKey, type Outputs, type Selector } from './buildings'
 import { hexKey, type Hex } from './hex'
 import { ownedTiles, tileNeighbors, type Tile, type WorldMap } from './map'
-import { AFFINITY_TERRAIN, RESOURCES, TERRAIN_DEFS, TERRAINS, type ResourceId, type TerrainId } from './terrain'
+import { RESOURCES, TERRAIN_DEFS, TERRAINS, type ResourceId, type TerrainId } from './terrain'
 
 export interface OutputLine {
   text: string
@@ -120,11 +120,19 @@ export function evaluateCity(map: WorldMap): CityStats {
 export function affinityBirthWeights(stats: Pick<CityStats, 'terrainCounts' | 'affinityLevels' | 'attune'>): Record<Affinity, number> {
   const w = CONFIG.affinity.birthWeight
   return Object.fromEntries(
-    AFFINITIES.map((a) => [
-      a,
-      w.mutation + w.perTile * stats.terrainCounts[AFFINITY_TERRAIN[a]] + w.perLevel * stats.affinityLevels[a] + w.perAttune * stats.attune[a],
-    ]),
+    AFFINITIES.map((a) => {
+      const d = AFFINITY_DEFS[a]
+      const research = w.perLevel * stats.affinityLevels[a] + w.perAttune * stats.attune[a]
+      if (d.tier > 1) return [a, stats.affinityLevels[a] > 0 ? research : 0]
+      const land = (d.land ?? []).reduce((n, t) => n + stats.terrainCounts[t], 0)
+      return [a, w.mutation + w.perTile * land + research]
+    }),
   ) as Record<Affinity, number>
+}
+
+/** Tier 1 is always open; higher tiers need every parent's academy at the unlock level. */
+export function isUnlocked(a: Affinity, levels: Partial<Record<Affinity, number>>): boolean {
+  return AFFINITY_DEFS[a].parents.every((p) => (levels[p] ?? 0) >= CONFIG.affinity.unlockLevel)
 }
 
 /** Combat bonuses the city gives its troop. */

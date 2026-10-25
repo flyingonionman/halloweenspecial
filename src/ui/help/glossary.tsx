@@ -8,7 +8,9 @@
 import type { ReactNode } from 'react'
 import {
   AFFINITY_LABEL,
-  AFFINITY_TERRAIN,
+  AFFINITIES,
+  AFFINITY_DEFS,
+  isUnlocked,
   BUILDING_DEFS,
   CONFIG,
   EFFECT_TEXT,
@@ -18,7 +20,7 @@ import {
   SYNERGY_DEFS,
   TERRAIN_DEFS,
   TYPE_DEFS,
-  birthsPerTurn,
+  musterSize,
   growthRate,
   effectiveYields,
   moraleMult,
@@ -69,7 +71,7 @@ const STATIC: Record<string, Resolver> = {
     title: 'Rounds & turns',
     body: `A run is ${CONFIG.rounds} rounds. Each round is ${CONFIG.turnsPerRound} turns of city-building, then one battle against that round’s opponent. Each turn: build, claim, trade and recruit as much as you can afford, plus one deed.`,
     live: `Round ${s.round + 1} of ${CONFIG.rounds}, turn ${s.turn + 1} of ${CONFIG.turnsPerRound}.`,
-    see: ['deed', 'scout', 'end-turn'],
+    see: ['muster', 'scout', 'end-turn'],
   }),
   timeline: () => ({
     title: 'Timeline',
@@ -79,7 +81,7 @@ const STATIC: Record<string, Resolver> = {
   'end-turn': () => ({
     title: 'End turn',
     body: `Collects every tile’s yields, grows your population, births new citizens into the muster, and sends away citizens who waited too long. On turn ${CONFIG.turnsPerRound} it marches your troop to battle instead. Marching with an empty troop forfeits.`,
-    see: ['growth', 'births', 'muster'],
+    see: ['growth', 'muster'],
   }),
   population: (s) => ({
     title: 'Population',
@@ -153,12 +155,6 @@ const STATIC: Record<string, Resolver> = {
       see: ['food', 'morale', 'population'],
     }
   },
-  births: (s) => ({
-    title: 'Births',
-    body: `New citizens born into the muster each turn: ${CONFIG.muster.births.base}, plus ${CONFIG.muster.births.perOrder} for every ×10 your population grows. Who they are depends on your tier, your land and your academies.`,
-    live: `${birthsPerTurn(s.population, s.species)} per turn.`,
-    see: ['muster', 'birth-odds', 'population'],
-  }),
   land: (s) => {
     const t = CONFIG.territory
     return {
@@ -226,16 +222,16 @@ const STATIC: Record<string, Resolver> = {
   }),
   demolish: () => ({ title: 'Demolish', body: `Tear a building down for ${pct(CONFIG.demolishRefund)} of everything you spent on it. Use it to pivot when your plans change.` }),
   'tab:tile': () => ({ title: 'Tile', body: 'The tile you selected on the board: what it produces, what you can build there, and whether you can claim or raid it.', see: ['tile-output', 'claim', 'camp'] }),
-  'tab:muster': () => ({ title: 'Muster', body: `Citizens waiting to be recruited. Each waits ${CONFIG.muster.lifespan} turns, then leaves.`, see: ['muster', 'births'] }),
+  'tab:muster': () => ({ title: 'Muster', body: 'This turn’s citizens. Recruit with morale; a fresh muster is called every turn.', see: ['muster', 'reroll'] }),
+  'tab:build': () => ({ title: 'Build', body: 'Every building, grouped. Open one for its stats, adjacency and model, then place it on the board.', see: ['adjacency', 'kind:research'] }),
   'tab:troop': () => ({ title: 'Troop', body: 'Your fighters, your bench, and the synergies your troop’s affinities add up to.', see: ['troop', 'bench', 'synergies'] }),
-  'tab:deeds': () => ({ title: 'Deeds', body: 'One deed per turn: a safe task or a raid. A dot means you haven’t used this turn’s deed yet.', see: ['deed'] }),
   'tab:scout': () => ({ title: 'Scout', body: 'This round’s opponent, known from turn 1 so you can plan against it.', see: ['scout'] }),
-  muster: () => ({
+  muster: (s) => ({
     title: 'Muster',
-    body: `Citizens born to your land wait here ${CONFIG.muster.lifespan} turns to be recruited, then move on. Recruits join your troop, or your bench if the troop is full. Every one is a distinct individual.`,
-    see: ['births', 'leaves', 'recruit-price', 'reroll'],
+    body: 'Every turn a fresh set of citizens answers the call, shaped by your population (rarity) and your land and academies (affinities). Recruit them with morale now; whoever you pass on goes home at the end of the turn. Recruits join your troop, or your bench if it’s full.',
+    live: `${musterSize(s.species)} citizens per muster.`,
+    see: ['birth-odds', 'recruit-price', 'reroll'],
   }),
-  leaves: () => ({ title: 'Leaving in', body: 'Turns left before this citizen gives up waiting and leaves the muster. Red means this is the last turn.' }),
   'recruit-price': () => ({
     title: 'Recruit price',
     body: `Morale to recruit. Base price by rarity (${RARITIES.map((r) => `${r} ${CONFIG.recruitMorale[r]}`).join(', ')}), adjusted by the unit’s quality roll. Spending morale lowers your fields’ output until it recovers.`,
@@ -258,7 +254,7 @@ const STATIC: Record<string, Resolver> = {
         synergies need two affinities and use the lower of each. Effects go to every unit carrying a component affinity, whatever its type.
       </>
     ),
-    see: ['synergy-tier', 'affinity-level', 'synergy:knight'],
+    see: ['synergy-tier', 'affinity-level', 'synergy:weaponry'],
   }),
   'synergy-tier': () => ({ title: 'Synergy tier', body: `Lit diamonds = active tier. Tiers unlock at ${A.thresholds.join(' / ')} troop points of the affinity.`, see: ['synergies'] }),
   'affinity-level': () => ({
@@ -271,7 +267,11 @@ const STATIC: Record<string, Resolver> = {
     body: `Each tile of an academy’s terrain beside it adds 1 attunement (max 3): +${pct(A.combatBonusPerAttune)} HP and attack for carriers, and more births of that affinity.`,
     see: ['kind:research', 'adjacency'],
   }),
-  level: () => ({ title: 'Unit level', body: `Levels 1–${CONFIG.level.max}. Each level adds +${pct(CONFIG.level.statPerLevel)} to base stats. Spend gold to upgrade; veterans pay less.`, see: ['veteran'] }),
+  level: () => ({
+    title: 'Unit level',
+    body: `Levels 1–${CONFIG.level.max}; each adds +${pct(CONFIG.level.statPerLevel)} to base stats. Levelling is a big investment: gold grows ×${CONFIG.level.goldGrowth} per level and with rarity, and higher levels also need ${CONFIG.level.materials.map((m) => `${RESOURCE_LABEL[m.resource].toLowerCase()} (from Lv${m.fromLevel})`).join(' and ')}. Double-click the level button to confirm. Veterans pay less.`,
+    see: ['veteran'],
+  }),
   veteran: () => ({ title: 'Veteran', body: `Stars show battles survived. Each one cuts upgrade costs by ${pct(CONFIG.level.discountPerBattleSurvived)}, up to ${pct(CONFIG.level.maxDiscount)}.` }),
   release: () => ({ title: 'Release', body: `Let a unit go and get back ${pct(CONFIG.releaseRefund)} of the morale it cost to recruit.`, see: ['morale'] }),
   'stat:hp': () => ({ title: 'HP', kind: 'Stat', body: 'Health. Boosted by rarity, quality, level, Walls, academies, and Earth synergies.' }),
@@ -279,17 +279,10 @@ const STATIC: Record<string, Resolver> = {
   'stat:def': () => ({ title: 'Defense', kind: 'Stat', body: `Reduces damage taken: damage × 100/(100+DEF). Magic damage counts only ${pct(CONFIG.combat.magicDefFactor)} of defense.` }),
   'stat:rng': () => ({ title: 'Range', kind: 'Stat', body: 'How far the unit can attack from. Melee is about 1.2. Placement only matters through range and cohesion synergies.' }),
   'stat:pwr': () => ({ title: 'Power', kind: 'Stat', body: 'A rough single-number strength: √(damage per second × effective HP). Handy for comparing, but it ignores synergies and abilities.' }),
-  deed: (s) => ({
-    title: 'Deed',
-    body: 'One per turn: a safe task, or a raid on a camp on your border. Tasks never risk anything. Raids are real combat with permadeath, but pay loot and claim the camp’s tile.',
-    live: s.deedDone ? 'This turn’s deed is used.' : 'This turn’s deed is available.',
-    see: ['task', 'camp'],
-  }),
-  task: () => ({ title: 'Tasks', body: 'Three safe offers each turn, drawn from: forage, caravan, festival, census, prospect, drill. Taking one uses your deed.', see: ['deed'] }),
   camp: () => ({
     title: 'Camps',
     body: `NPC strongholds on the map, strength I–III. Raid one on your border with your troop: units can die, but win and you get gold, morale, the tile’s resource, and the tile itself. Losing a raid only costs units and a little morale.`,
-    see: ['deed', 'permadeath', 'land'],
+    see: ['permadeath', 'land'],
   }),
   scout: () => ({
     title: 'Scouting',
@@ -329,7 +322,7 @@ function building(id: BuildingId): Resolver {
         </>
       ),
       live: count ? `You have ${count}.` : undefined,
-      see: [...(def.kind === 'capital' ? ['births'] : [`kind:${def.kind}`, 'adjacency']), ...(def.affinity ? [`affinity:${def.affinity}`] : [])],
+      see: [...(def.kind === 'capital' ? ['muster'] : [`kind:${def.kind}`, 'adjacency']), ...(def.affinity ? [`affinity:${def.affinity}`] : [])],
     }
   }
 }
@@ -337,19 +330,26 @@ function building(id: BuildingId): Resolver {
 function affinity(a: Affinity): Resolver {
   return (s) => {
     const c = city(s)
-    const terrain = AFFINITY_TERRAIN[a]
-    const syns = SYNERGY_DEFS.filter((d) => d.components.includes(a))
+    const d = AFFINITY_DEFS[a]
+    const open = isUnlocked(a, c.affinityLevels)
+    const kids = AFFINITIES.filter((k) => AFFINITY_DEFS[k].parents.includes(a))
     return {
       title: AFFINITY_LABEL[a],
-      kind: 'Affinity',
+      kind: `Tier ${d.tier} affinity`,
       body: (
         <>
-          Points a unit carries toward {AFFINITY_LABEL[a]} synergies. It doesn’t change how the unit fights. Citizens with it are born from {TERRAIN_DEFS[terrain].label.toLowerCase()} land
-          and its academy.
+          {d.flavour}{' '}
+          {d.tier === 1
+            ? d.land
+              ? `Born from ${d.land.map((t) => TERRAIN_DEFS[t].label.toLowerCase()).join(' and ')} land and its ${d.academy}.`
+              : `Born once you build a ${d.academy}.`
+            : `Unlocked when ${d.parents.map((p) => AFFINITY_LABEL[p]).join(' and ')} reach academy Lv${CONFIG.affinity.unlockLevel}; then citizens are born with it once you build its ${d.academy}.`}
+          {kids.length > 0 && <p className="help-line">Leads to: {kids.map((k) => AFFINITY_LABEL[k]).join(', ')}.</p>}
+          {d.team && <p className="help-line">Its synergy empowers your whole troop.</p>}
         </>
       ),
-      live: `Academy Lv${c.affinityLevels[a]} · attune ${c.attune[a]} · ${c.terrainCounts[terrain]} ${TERRAIN_DEFS[terrain].label.toLowerCase()} tiles owned.`,
-      see: [...syns.map((d) => `synergy:${d.id}`), `terrain:${terrain}`, `building:${a}-academy`],
+      live: open ? `Academy Lv${c.affinityLevels[a]} · attune ${c.attune[a]}.` : 'Locked.',
+      see: [`synergy:${a}`, `building:${a}-academy`, ...d.parents.map((p) => `affinity:${p}`), ...kids.map((k) => `affinity:${k}`)],
     }
   }
 }

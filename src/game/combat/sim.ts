@@ -176,6 +176,11 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
     const crit = rng.chance(u.stats.critChance)
     damage(u, target, u.stats.atk, u.stats.damage, crit)
     if (u.stats.bonusMagic > 0 && target.alive) damage(u, target, u.stats.atk * u.stats.bonusMagic, 'magic', false, false)
+    // Thunder: the blow arcs to the nearest other enemy near the target.
+    if (u.stats.chain > 0) {
+      const arc = nearest(target, enemiesOf(u).filter((e) => e !== target && dist(e, target) <= 3))
+      if (arc) damage(u, arc, u.stats.atk * u.stats.chain, 'magic', false, false)
+    }
   }
 
   const cast = (u: CombatUnit, target: CombatUnit) => {

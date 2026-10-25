@@ -45,26 +45,21 @@ export interface TerrainDef {
 
 export const TERRAIN_DEFS: Record<TerrainId, TerrainDef> = {
   plains: { id: 'plains', label: 'Plains', resource: 'food', rawYield: 1, affinity: null, buildable: true },
-  lake: { id: 'lake', label: 'Lake', resource: 'food', rawYield: 2, affinity: null, buildable: false },
-  forest: { id: 'forest', label: 'Forest', resource: 'timber', rawYield: 1, affinity: 'bow', buildable: true },
-  hills: { id: 'hills', label: 'Hills', resource: 'iron', rawYield: 1, affinity: 'sword', buildable: true },
+  lake: { id: 'lake', label: 'Lake', resource: 'food', rawYield: 2, affinity: 'water', buildable: false },
+  forest: { id: 'forest', label: 'Forest', resource: 'timber', rawYield: 1, affinity: null, buildable: true },
+  hills: { id: 'hills', label: 'Hills', resource: 'iron', rawYield: 1, affinity: null, buildable: true },
   mountains: { id: 'mountains', label: 'Mountains', resource: 'stone', rawYield: 1, affinity: 'earth', buildable: true },
-  steppe: { id: 'steppe', label: 'Steppe', resource: 'hide', rawYield: 1, affinity: 'shield', buildable: true },
-  tundra: { id: 'tundra', label: 'Tundra', resource: 'ice', rawYield: 1, affinity: 'frost', buildable: true },
+  steppe: { id: 'steppe', label: 'Steppe', resource: 'hide', rawYield: 1, affinity: null, buildable: true },
+  tundra: { id: 'tundra', label: 'Tundra', resource: 'ice', rawYield: 1, affinity: null, buildable: true },
   volcanic: { id: 'volcanic', label: 'Volcanic', resource: 'ember', rawYield: 1, affinity: 'fire', buildable: true },
   leyfield: { id: 'leyfield', label: 'Leyfield', resource: 'crystal', rawYield: 1, affinity: 'arcane', buildable: true },
   highlands: { id: 'highlands', label: 'Highlands', resource: 'skystone', rawYield: 1, affinity: 'wind', buildable: true },
 }
 
-/** Terrains that carry an affinity (one per affinity). */
+/** Terrains whose land breeds a tier-1 affinity. */
 export const AFFINITY_TERRAINS = TERRAINS.filter((t) => TERRAIN_DEFS[t].affinity !== null)
 
-export const AFFINITY_TERRAIN = Object.fromEntries(
-  AFFINITY_TERRAINS.map((t) => [TERRAIN_DEFS[t].affinity!, t]),
-) as Record<Affinity, TerrainId>
-
-export const AFFINITY_RESOURCE = Object.fromEntries(
-  AFFINITY_TERRAINS.map((t) => [TERRAIN_DEFS[t].affinity!, TERRAIN_DEFS[t].resource]),
-) as Record<Affinity, Material>
+/** Starting regions lean toward any land worth settling (not plains or lakes). */
+export const HOME_TERRAINS = TERRAINS.filter((t) => t !== 'plains' && t !== 'lake')
 
 export const emptyStock = (): Stock => Object.fromEntries(STOCK_RESOURCES.map((r) => [r, 0])) as Stock

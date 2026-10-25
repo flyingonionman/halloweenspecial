@@ -2,9 +2,9 @@
  * The city board: a Catan-style hex map in 3D. Renders the WorldMap only —
  * all rules live in the game core; this reports hovers and clicks.
  */
-import { useMemo, useRef, useState } from 'react'
+import { Suspense, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
-import { Html, Line, MapControls, Stars } from '@react-three/drei'
+import { Html, Line, MapControls, Stars, useTexture } from '@react-three/drei'
 import * as THREE from 'three'
 import {
   BUILDING_DEFS,
@@ -175,7 +175,7 @@ function jitter(h: Hex, salt: number) {
 export function Board3D(props: Props) {
   return (
     <Canvas shadows dpr={[1, 2]} camera={{ position: [0, 15, 12.5], fov: 40, far: 400 }} onPointerMissed={() => props.onSelect(null)}>
-      <fog attach="fog" args={['#1c2240', 16, 46]} />
+      <fog attach="fog" args={[FOG_COLOR, 24, 70]} />
       <NightSky />
       <hemisphereLight args={['#b9c8ff', '#2a1f18', 0.55]} />
       <ambientLight intensity={0.3} />
@@ -198,7 +198,9 @@ export function Board3D(props: Props) {
       <pointLight position={[0, 1.6, 0]} color="#ffb060" intensity={6} distance={7} decay={1.6} />
       <MapControls makeDefault enableDamping dampingFactor={0.12} minDistance={7} maxDistance={28} maxPolarAngle={1.25} minPolarAngle={0.3} />
       <EndlessOcean />
-      <Tiles {...props} />
+      <Suspense fallback={null}>
+        <Tiles {...props} />
+      </Suspense>
       <Border map={props.map} />
     </Canvas>
   )
@@ -216,11 +218,12 @@ const skyFrag = /* glsl */ `
   varying vec3 vDir;
   void main() {
     float h = clamp(vDir.y, -0.2, 1.0);
-    vec3 horizon = vec3(0.13, 0.12, 0.26);
+    vec3 horizon = vec3(0.29, 0.32, 0.455); // = FOG_COLOR
     vec3 zenith = vec3(0.012, 0.018, 0.06);
-    vec3 col = mix(horizon, zenith, smoothstep(-0.05, 0.6, h));
+    // Fog owns the lower sky; only high overhead does it darken into night.
+    vec3 col = mix(horizon, zenith, smoothstep(0.3, 0.95, h));
     // faint aurora-ish band low on the horizon
-    col += vec3(0.06, 0.02, 0.09) * exp(-pow((h - 0.08) * 9.0, 2.0));
+
     gl_FragColor = vec4(col, 1.0);
   }
 `
@@ -233,7 +236,7 @@ function NightSky() {
       <mesh material={mat} renderOrder={-1}>
         <sphereGeometry args={[300, 32, 16]} />
       </mesh>
-      <Stars radius={180} depth={60} count={5000} factor={5} saturation={0.15} fade speed={0.6} />
+      <Stars radius={180} depth={40} count={2500} factor={4} saturation={0.1} fade speed={0.4} />
       <mesh position={[-90, 70, -140]}>
         <sphereGeometry args={[7, 32, 16]} />
         <meshBasicMaterial color="#f4ecd6" fog={false} />
@@ -249,6 +252,8 @@ function NightSky() {
 /** The world below the board: an ocean sphere whose north pole sits just under the capital. */
 /** Sea level: the curved land dome rises out of it, and its rim sinks below. */
 const SEA_Y = -1.0
+/** Shared by scene fog, the far mist and the sky's horizon, so they melt into one another. */
+const FOG_COLOR = '#4a5274'
 /** Roughly where the last ring of tiles ends. */
 const EDGE_R = 9.4
 
@@ -270,14 +275,18 @@ const noiseGlsl = /* glsl */ `
 const mistSheetFrag = /* glsl */ `
   uniform float uTime;
   uniform float uInner;
+  uniform vec3 uFog;
   varying vec3 vWorld;
   ${noiseGlsl}
   void main() {
     float r = length(vWorld.xz);
     float n = fbm(vWorld.xz * 0.12 + vec2(uTime * 0.03, -uTime * 0.02));
     float band = smoothstep(uInner - 1.0, uInner + 5.0, r);
-    float a = band * (0.35 + 0.65 * n);
-    gl_FragColor = vec4(mix(vec3(0.42, 0.45, 0.62), vec3(0.75, 0.78, 0.9), n), a * 0.9);
+    // Wisps near the rim, a solid wall of mist further out: the world simply ends.
+    float solid = smoothstep(uInner + 1.5, uInner + 6.0, r);
+    float a = max(band * (0.35 + 0.65 * n), solid);
+    vec3 wisp = mix(vec3(0.42, 0.45, 0.6), vec3(0.72, 0.75, 0.88), n);
+    gl_FragColor = vec4(mix(wisp, uFog, solid), a);
   }
 `
 
@@ -290,9 +299,10 @@ const mistWallFrag = /* glsl */ `
   void main() {
     float ang = atan(vWorld.z, vWorld.x);
     float n = fbm(vec2(ang * 3.0 + uTime * 0.05, vUv.y * 2.5 - uTime * 0.04));
-    float fadeUp = 1.0 - smoothstep(0.1, 1.0, vUv.y);
-    float a = fadeUp * smoothstep(0.25, 0.75, n);
-    gl_FragColor = vec4(vec3(0.66, 0.7, 0.85), a * 0.55);
+    // soft on both ends so it never shows a hard rim
+    float fade = smoothstep(0.0, 0.35, vUv.y) * (1.0 - smoothstep(0.45, 1.0, vUv.y));
+    float a = fade * smoothstep(0.3, 0.75, n);
+    gl_FragColor = vec4(vec3(0.62, 0.66, 0.8), a * 0.45);
   }
 `
 
@@ -307,14 +317,35 @@ const worldVert = /* glsl */ `
   }
 `
 
-/** An endless dark ocean that fades into fog, with mist marking where the world ends. */
+/** Water right at the shore, fading into solid fog a few tiles out. */
+const seaFrag = /* glsl */ `
+  uniform vec3 uFog;
+  uniform float uInner;
+  varying vec3 vWorld;
+  void main() {
+    float r = length(vWorld.xz);
+    vec3 water = vec3(0.08, 0.15, 0.22);
+    gl_FragColor = vec4(mix(water, uFog, smoothstep(uInner - 1.0, uInner + 4.0, r)), 1.0);
+  }
+`
+
+/** The world ends in fog: shoreline water, wisps at the rim, then nothing but mist. */
 function EndlessOcean() {
+  const sea = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        vertexShader: worldVert,
+        fragmentShader: seaFrag,
+        uniforms: { uFog: { value: new THREE.Color(FOG_COLOR).convertLinearToSRGB() }, uInner: { value: EDGE_R } },
+      }),
+    [],
+  )
   const sheet = useMemo(
     () =>
       new THREE.ShaderMaterial({
         vertexShader: worldVert,
         fragmentShader: mistSheetFrag,
-        uniforms: { uTime: { value: 0 }, uInner: { value: EDGE_R } },
+        uniforms: { uTime: { value: 0 }, uInner: { value: EDGE_R }, uFog: { value: new THREE.Color(FOG_COLOR).convertLinearToSRGB() } },
         transparent: true,
         depthWrite: false,
       }),
@@ -338,15 +369,14 @@ function EndlessOcean() {
   })
   return (
     <>
-      <mesh rotation-x={-Math.PI / 2} position-y={SEA_Y} receiveShadow>
+      <mesh rotation-x={-Math.PI / 2} position-y={SEA_Y} material={sea}>
         <planeGeometry args={[1200, 1200]} />
-        <meshStandardMaterial color="#14283a" roughness={0.25} metalness={0.35} />
       </mesh>
       <mesh rotation-x={-Math.PI / 2} position-y={SEA_Y + 0.12} material={sheet} renderOrder={2}>
         <ringGeometry args={[EDGE_R - 1.5, 160, 128, 1]} />
       </mesh>
-      <mesh position-y={SEA_Y + 1.4} material={wall} renderOrder={3}>
-        <cylinderGeometry args={[EDGE_R + 2.2, EDGE_R + 2.2, 3, 96, 1, true]} />
+      <mesh position-y={SEA_Y + 0.9} material={wall} renderOrder={3}>
+        <cylinderGeometry args={[EDGE_R + 1.5, EDGE_R + 4, 2.4, 96, 1, true]} />
       </mesh>
     </>
   )
@@ -383,8 +413,50 @@ function Turntable({ children }: { children: React.ReactNode }) {
   )
 }
 
+// ── Photo grass (Poly Haven, CC0, shrunk to 512px WebP) ───────────────
+
+/** Terrains that use the grass material, and the tint that turns it into each. */
+const GRASS_TINT: Partial<Record<TerrainId, string>> = {
+  plains: '#d6e2a2',
+  steppe: '#ffdc94',
+  forest: '#86a874',
+}
+/** World units one grass texture repeat covers; UVs follow world position so neighbours join up. */
+const GRASS_SPAN = 5
+
+interface Grass {
+  map: THREE.Texture
+  normal: THREE.Texture
+}
+
+function useGrass(): Grass {
+  const [map, normal] = useTexture(['/textures/grass_diff.webp', '/textures/grass_nor.webp']) as [THREE.Texture, THREE.Texture]
+  return useMemo(() => {
+    map.colorSpace = THREE.SRGBColorSpace
+    for (const t of [map, normal]) {
+      t.wrapS = t.wrapT = THREE.RepeatWrapping
+      t.anisotropy = 4
+    }
+    return { map, normal }
+  }, [map, normal])
+}
+
+/** Per-tile clones (sharing the image) offset to the tile's world position. */
+function grassFor(grass: Grass, x: number, z: number): Grass {
+  const k = (2 * HEX_R) / GRASS_SPAN
+  const out = { map: grass.map.clone(), normal: grass.normal.clone() }
+  for (const t of [out.map, out.normal]) {
+    t.repeat.set(k, k)
+    // the top cap's u runs along z and v along x
+    t.offset.set(z / GRASS_SPAN, x / GRASS_SPAN)
+    t.needsUpdate = true
+  }
+  return out
+}
+
 function Tiles({ map, selected, frontier, previews, onSelect }: Props) {
   const [hover, setHover] = useState<string | null>(null)
+  const grass = useGrass()
   const gl = useThree((s) => s.gl)
   // The DOM cursor rules can't see 3D objects, so switch the gauntlet here.
   gl.domElement.style.cursor = hover ? "url('/cursors/gauntlet-hover.svg') 3 2, pointer" : ''
@@ -403,6 +475,7 @@ function Tiles({ map, selected, frontier, previews, onSelect }: Props) {
             dimmed={!!previews && !previews[k]}
             onHover={(on) => setHover(on ? k : (h) => (h === k ? null : h))}
             onSelect={onSelect}
+            grass={grass}
           />
         )
       })}
@@ -425,9 +498,10 @@ interface TileProps {
   dimmed: boolean
   onHover: (on: boolean) => void
   onSelect: (h: Hex) => void
+  grass: Grass
 }
 
-const TileMesh = function TileMesh({ tile, hovered, selected, frontier, preview, dimmed, onHover, onSelect }: TileProps) {
+const TileMesh = function TileMesh({ tile, hovered, selected, frontier, preview, dimmed, onHover, onSelect, grass }: TileProps) {
   const group = useRef<THREE.Group>(null)
   const ring = useRef<THREE.Mesh>(null)
   const pose = useMemo(() => planetPose(...hexToWorld(tile)), [tile.q, tile.r])
@@ -441,7 +515,10 @@ const TileMesh = function TileMesh({ tile, hovered, selected, frontier, preview,
     return c
   }, [tile.owned, frontier, dimmed])
   const wall = useMemo(() => new THREE.Color(TERRAIN_COLOR[tile.terrain]).multiplyScalar(0.42).multiply(tint), [tile.terrain, tint])
-  const tex = terrainTexture(tile.terrain)
+  const grassTint = GRASS_TINT[tile.terrain]
+  const tileGrass = useMemo(() => (grassTint ? grassFor(grass, pose.position.x, pose.position.z) : null), [grass, grassTint, pose])
+  const topColor = useMemo(() => (grassTint ? new THREE.Color(grassTint).multiply(tint) : tint), [grassTint, tint])
+  const tex = tileGrass?.map ?? terrainTexture(tile.terrain)
 
   useFrame((state, dt) => {
     const g = group.current
@@ -484,7 +561,9 @@ const TileMesh = function TileMesh({ tile, hovered, selected, frontier, preview,
           <meshStandardMaterial
             attach="material-1"
             map={tex}
-            color={tint}
+            normalMap={tileGrass?.normal ?? null}
+            normalScale={new THREE.Vector2(1.4, 1.4)}
+            color={topColor}
             roughness={lake ? 0.15 : 0.9}
             metalness={lake ? 0.3 : 0}
             emissive={hovered ? '#4a3420' : '#000000'}

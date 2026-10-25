@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   AFFINITIES,
+  AFFINITY_DEFS,
   AFFINITY_LABEL,
   BUILDINGS,
   BUILDING_DEFS,
@@ -10,44 +11,40 @@ import {
   RESOURCE_LABEL,
   STOCK_RESOURCES,
   TERRAIN_DEFS,
-  absTurn,
+  TYPE_DEFS,
   affinityBirthWeights,
   affinityOdds,
   birthRarityOdds,
-  birthsPerTurn,
-  canReroll,
-  effectiveYields,
-  growthRate,
-  moraleMult,
-  rerollCost,
-  rerollMuster,
-  tierProgress,
-  TYPE_DEFS,
   buildBlock,
   campLoot,
   campRarityHint,
-  canDoTask,
   canRecruit,
+  canReroll,
   canTrade,
   canUpgradeBuilding,
   city,
+  civTier,
   claimBlock,
   claimCost,
   claimTile,
   demolish,
   demolishRefund,
-  doTask,
+  effectiveYields,
   evaluateBuilding,
   frontier,
+  growthRate,
   hexKey,
+  moraleMult,
+  moraleRegen,
   ownedTiles,
   placeBuilding,
   raidBlock,
   raidCamp,
   recruit,
-  taskText,
-  taskTitle,
+  rerollCost,
+  rerollMuster,
   territoryCap,
+  tierProgress,
   tileAt,
   trade,
   upgradeBuilding,
@@ -57,21 +54,23 @@ import {
 } from '../../game'
 import { useGame } from '../useGame'
 import { Board3D, type TilePreview } from '../board/Board3D'
-import { TroopPanel } from '../components/TroopPanel'
-import { fmtOutputs, outputParts, outputScore } from '../format'
-import { BuildingGlyph, CostChips } from '../components/BuildingBits'
 import { BuildPanel } from '../board/BuildPanel'
+import { TroopPanel } from '../components/TroopPanel'
 import { Portrait } from '../components/Portrait'
 import { UnitDetail } from '../components/UnitDetail'
+import { BuildingGlyph, CostChips } from '../components/BuildingBits'
+import { fmtOutputs, outputParts, outputScore } from '../format'
 import { AFFINITY_COLOR, AFFINITY_GLYPH, RARITY_COLOR, RESOURCE_COLOR, RESOURCE_GLYPH, TERRAIN_COLOR, fmtPop } from '../theme'
 
-type Tab = 'tile' | 'muster' | 'troop' | 'deeds' | 'scout'
+type RightTab = 'tile' | 'muster' | 'troop' | 'build' | 'scout'
+type LeftTab = 'population' | 'resources'
 
 export function TurnScreen() {
   const [s, dispatch] = useGame()
   const [selected, setSelected] = useState<Hex | null>(null)
   const [armed, setArmed] = useState<BuildingId | null>(null)
-  const [tab, setTab] = useState<Tab>('muster')
+  const [tab, setTab] = useState<RightTab>('muster')
+  const [left, setLeft] = useState<LeftTab>('population')
 
   const frontierKeys = useMemo(() => new Set(frontier(s.map).map(hexKey)), [s.map])
 
@@ -103,7 +102,6 @@ export function TurnScreen() {
       if (!buildBlock(s, h, armed)) {
         dispatch((st) => placeBuilding(st, h, armed))
         setSelected(h)
-        setTab('tile')
         setArmed(null)
       }
       return
@@ -112,12 +110,33 @@ export function TurnScreen() {
     if (h) setTab('tile')
   }
 
+  const RIGHT: [RightTab, string][] = [
+    ['tile', 'Tile'],
+    ['muster', 'Muster'],
+    ['troop', `Troop ${s.troop.length}`],
+    ['build', 'Build'],
+    ['scout', 'Scout'],
+  ]
+
   return (
     <div className="turn">
-      <EconomyRail />
+      <aside className="rail">
+        <nav className="side-tabs">
+          {(
+            [
+              ['population', 'Population'],
+              ['resources', 'Resources'],
+            ] as [LeftTab, string][]
+          ).map(([id, label]) => (
+            <button key={id} className={left === id ? 'on' : ''} onClick={() => setLeft(id)}>
+              {label}
+            </button>
+          ))}
+        </nav>
+        <div className="rail-body">{left === 'population' ? <PopulationTab /> : <ResourcesTab />}</div>
+      </aside>
       <section className="board-wrap">
         <Board3D map={s.map} selected={selected} frontier={frontierKeys} previews={previews} onSelect={onSelect} />
-        <BuildPanel armed={armed} onArm={setArmed} />
         {armed && (
           <div className="armed-hint">
             Placing <b>{BUILDING_DEFS[armed].name}</b>. Click a highlighted tile. <kbd>Esc</kbd> to cancel.
@@ -126,16 +145,8 @@ export function TurnScreen() {
       </section>
       <aside className="side">
         <nav className="side-tabs">
-          {(
-            [
-              ['tile', 'Tile'],
-              ['muster', `Muster ${s.muster.length}`],
-              ['troop', 'Troop'],
-              ['deeds', s.deedDone ? 'Deeds ✓' : 'Deeds •'],
-              ['scout', 'Scout'],
-            ] as [Tab, string][]
-          ).map(([id, label]) => (
-            <button key={id} data-help={`tab:${id}`} className={`${tab === id ? 'on' : ''} ${id === 'deeds' && !s.deedDone ? 'pending' : ''}`} onClick={() => setTab(id)}>
+          {RIGHT.map(([id, label]) => (
+            <button key={id} data-help={`tab:${id}`} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>
               {label}
             </button>
           ))}
@@ -144,39 +155,40 @@ export function TurnScreen() {
           {tab === 'tile' && <TilePanel hex={selected} onSelect={onSelect} />}
           {tab === 'muster' && <MusterPanel />}
           {tab === 'troop' && <TroopPanel />}
-          {tab === 'deeds' && (
-            <DeedsPanel
-              onFocusTile={(h) => {
-                setSelected(h)
-                setTab('tile')
-              }}
-            />
-          )}
-          {tab === 'scout' && <ScoutPanel />}
+          {tab === 'build' && <BuildPanel armed={armed} onArm={setArmed} />}
+          {tab === 'scout' && <ScoutPanel onFocusTile={(h) => onSelect(h)} />}
         </div>
       </aside>
     </div>
   )
 }
 
-// ── Economy rail ──────────────────────────────────────────────────────
+// ── Left: population ──────────────────────────────────────────────────
 
-function EconomyRail() {
-  const [s, dispatch] = useGame()
+function PopulationTab() {
+  const [s] = useGame()
   const c = city(s)
-  const y = effectiveYields(s)
-  const owned = ownedTiles(s.map).length
-  const aff = affinityOdds(affinityBirthWeights(c))
   const rar = birthRarityOdds(s.population, s.species)
   const tp = tierProgress(s.population)
-  const mult = moraleMult(s.morale)
-  const [give, setGive] = useState<Material>('timber')
-  const [get, setGet] = useState<Material>('iron')
+  const aff = affinityOdds(affinityBirthWeights(c))
+  // Grouped by tier, most likely first within each tier.
+  const born = AFFINITIES.filter((a) => aff[a] > 0).sort((a, b) => AFFINITY_DEFS[a].tier - AFFINITY_DEFS[b].tier || aff[b] - aff[a])
 
   return (
-    <aside className="rail">
-      <h3 className="section-title first" data-help="birth-odds">
-        Who is born
+    <div className="pop-tab">
+      <div className="pop-hero" data-help="population">
+        <span className="label">Population</span>
+        <b>{s.population.toLocaleString()}</b>
+        <span className="pop-sub">
+          <span data-help="growth">+{Math.round(growthRate(s) * 100)}% / turn</span> ·{' '}
+          <span data-help="tier" style={{ color: RARITY_COLOR[civTier(s.population)] }}>
+            {civTier(s.population)} tier
+          </span>
+        </span>
+      </div>
+
+      <h3 className="section-title" data-help="birth-odds">
+        Rarity of new citizens
       </h3>
       <ul className="rarity-odds">
         {RARITIES.map((r) => {
@@ -195,47 +207,64 @@ function EconomyRail() {
       {tp.next && (
         <div className="tier-climb" data-help="tier">
           <div className="tc-label">
-            <span style={{ color: RARITY_COLOR[tp.next] }}>{tp.next}</span> unlocks at {fmtPop(tp.nextAt!)}
-            <small>{fmtPop(s.population)} now</small>
+            <span style={{ color: RARITY_COLOR[tp.next] }}>{tp.next}</span> at {fmtPop(tp.nextAt!)}
           </div>
           <div className="tc-bar">
             <i style={{ width: `${tp.progress * 100}%`, background: RARITY_COLOR[tp.tier] }} />
           </div>
-          <small className="muted">Every soul until then makes {tp.tier === 'common' ? 'rarer' : tp.tier} citizens more likely.</small>
         </div>
       )}
 
+      <h3 className="section-title" data-help="birth-odds">
+        Affinities of new citizens
+      </h3>
       <ul className="aff-odds">
-        {[...AFFINITIES]
-          .sort((a, b) => aff[b] - aff[a])
-          .map((a) => (
-            <li key={a} title={`Academy Lv${c.affinityLevels[a]} · attune ${c.attune[a]}`} data-help={`affinity:${a}`}>
-              <span style={{ color: AFFINITY_COLOR[a] }}>{AFFINITY_GLYPH[a]}</span>
-              <span className="aff-name">{AFFINITY_LABEL[a]}</span>
-              <span className="aff-bar">
-                <i style={{ width: `${aff[a] * 100}%`, background: AFFINITY_COLOR[a] }} />
-              </span>
-              <span className="aff-pct">{Math.round(aff[a] * 100)}%</span>
-              {c.affinityLevels[a] > 0 && <span className="aff-lv">Lv{c.affinityLevels[a]}</span>}
+        {born.map((a, i) => [
+          AFFINITY_DEFS[a].tier !== AFFINITY_DEFS[born[i - 1] ?? a].tier || i === 0 ? (
+            <li key={`t${AFFINITY_DEFS[a].tier}`} className="aff-tier">
+              Tier {AFFINITY_DEFS[a].tier}
             </li>
-          ))}
+          ) : null,
+          <li key={a} data-help={`affinity:${a}`}>
+            <span style={{ color: AFFINITY_COLOR[a] }}>{AFFINITY_GLYPH[a]}</span>
+            <span className="aff-name">{AFFINITY_LABEL[a]}</span>
+            <span className="aff-bar">
+              <i style={{ width: `${aff[a] * 100}%`, background: AFFINITY_COLOR[a] }} />
+            </span>
+            <span className="aff-pct">{Math.round(aff[a] * 100)}%</span>
+            {c.affinityLevels[a] > 0 && <span className="aff-lv">Lv{c.affinityLevels[a]}</span>}
+          </li>,
+        ])}
       </ul>
+    </div>
+  )
+}
 
+// ── Left: resources ───────────────────────────────────────────────────
+
+function ResourcesTab() {
+  const [s, dispatch] = useGame()
+  const c = city(s)
+  const y = effectiveYields(s)
+  const [give, setGive] = useState<Material>('timber')
+  const [get, setGet] = useState<Material>('iron')
+
+  return (
+    <div className="res-tab">
       <div className="morale-box" data-help="morale">
         <div className="mb-head">
           <span>Morale</span>
           <b>{s.morale}</b>
-          <small>fields ×{mult.toFixed(2)}</small>
+          <small>
+            +{moraleRegen(s)}/turn · fields ×{moraleMult(s.morale).toFixed(2)}
+          </small>
         </div>
         <div className="mb-bar">
           <i style={{ width: `${(s.morale / CONFIG.morale.max) * 100}%` }} />
         </div>
       </div>
 
-      <h3 className="section-title" data-help="stores">
-        Stores
-      </h3>
-      <ul className="stock">
+      <ul className="stock-grid">
         {STOCK_RESOURCES.map((r) => (
           <li key={r} className={s.stock[r] === 0 && !y[r] ? 'none' : ''} data-help={`resource:${r}`}>
             <span className="res-glyph" style={{ color: RESOURCE_COLOR[r] }}>
@@ -246,42 +275,38 @@ function EconomyRail() {
             <span className="res-delta">{y[r] ? `+${y[r]}` : ''}</span>
           </li>
         ))}
+        <li data-help="food">
+          <span className="res-glyph" style={{ color: RESOURCE_COLOR.food }}>
+            {RESOURCE_GLYPH.food}
+          </span>
+          <span className="res-name">Food</span>
+          <span className="res-amt" />
+          <span className="res-delta">+{y.food}</span>
+        </li>
       </ul>
 
       <dl className="city-stats">
-        <div data-help="food">
-          <dt>
-            <span style={{ color: RESOURCE_COLOR.food }}>{RESOURCE_GLYPH.food}</span> Food
-          </dt>
-          <dd>{y.food}</dd>
-        </div>
-        <div data-help="growth">
-          <dt>Growth</dt>
-          <dd>+{Math.round(growthRate(s) * 100)}%</dd>
-        </div>
-        <div data-help="births">
-          <dt>Births</dt>
-          <dd>{birthsPerTurn(s.population, s.species)}/turn</dd>
-        </div>
         <div data-help="land">
           <dt>Land</dt>
           <dd>
-            {owned}/{territoryCap(s)}
+            {ownedTiles(s.map).length}/{territoryCap(s)}
           </dd>
         </div>
-        {(c.atkPct > 0 || c.hpPct > 0 || c.defPct > 0) && (
-          <div className="wide" data-help="troop-bonus">
-            <dt>Troop</dt>
-            <dd>{fmtOutputs({ atkPct: c.atkPct, hpPct: c.hpPct, defPct: c.defPct })}</dd>
-          </div>
-        )}
+        <div data-help="claim">
+          <dt>Next claim</dt>
+          <dd>{claimCost(s)} gold</dd>
+        </div>
+        <div className="wide" data-help="troop-bonus">
+          <dt>Troop bonuses</dt>
+          <dd>{c.atkPct || c.hpPct || c.defPct ? fmtOutputs({ atkPct: c.atkPct, hpPct: c.hpPct, defPct: c.defPct }) : 'none yet'}</dd>
+        </div>
       </dl>
 
       {c.tradeRate !== null && (
-        <>
-          <h3 className="section-title" data-help="trade">
+        <div className="trade-box">
+          <span className="label" data-help="trade">
             Trade {c.tradeRate}:1
-          </h3>
+          </span>
           <div className="trade">
             <select value={give} onChange={(e) => setGive(e.target.value as Material)}>
               {MATERIALS.map((m) => (
@@ -302,14 +327,11 @@ function EconomyRail() {
               Trade
             </button>
           </div>
-        </>
+        </div>
       )}
 
-      <h3 className="section-title" data-help="chronicle">
-        Chronicle
-      </h3>
-      <ol className="chronicle">
-        {[...s.log].reverse().slice(0, 8).map((l, i) => (
+      <ol className="chronicle" data-help="chronicle">
+        {[...s.log].reverse().slice(0, 4).map((l, i) => (
           <li key={i}>
             <small>
               R{l.round + 1}·T{l.turn + 1}
@@ -318,12 +340,11 @@ function EconomyRail() {
           </li>
         ))}
       </ol>
-      <p className="help-hint">Click any underlined text to learn what it is. ⚙ opens the Lexicon.</p>
-    </aside>
+    </div>
   )
 }
 
-// ── Tile panel ────────────────────────────────────────────────────────
+// ── Right: tile ───────────────────────────────────────────────────────
 
 const CLAIM_REASON = {
   'not-frontier': 'Not on your border.',
@@ -335,7 +356,6 @@ const CLAIM_REASON = {
 const RAID_REASON = {
   'no-camp': '',
   'not-frontier': 'Too far. Expand your border to reach it.',
-  'deed-used': 'You’ve already taken this turn’s deed.',
   'no-troop': 'You need a troop to raid.',
 } as const
 
@@ -396,7 +416,6 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
               )}
             </div>
           )}
-          <p className="muted">{def.text}</p>
           <button
             className="btn btn-small btn-ghost"
             data-help="demolish"
@@ -453,7 +472,7 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
             return (
               <>
                 <button className="btn btn-war" disabled={!!block} onClick={() => dispatch((st) => raidCamp(st, t))}>
-                  Raid (uses your deed)
+                  Raid
                 </button>
                 {block && <p className="muted">{RAID_REASON[block]}</p>}
               </>
@@ -474,17 +493,18 @@ function BuildOptions({ hex }: { hex: Hex }) {
     .filter(({ block }) => block === null || block === 'cost')
     .map(({ b, block }) => ({ b, block, out: evaluateBuilding(s.map, hex, b.id).output }))
     .sort((x, y) => Number(!!x.block) - Number(!!y.block) || outputScore(y.out) - outputScore(x.out))
+    .slice(0, 6)
   return (
     <div className="build-options">
       <span className="label" data-help="adjacency">
-        Build here
+        Best builds here
       </span>
       {options.map(({ b, block, out }) => (
-        <button key={b.id} data-help={`building:${b.id}`} className={`build-opt ${block ? 'poor' : ''}`} disabled={!!block} onClick={() => dispatch((st) => placeBuilding(st, hex, b.id))}>
+        <button key={b.id} className={`build-opt ${block ? 'poor' : ''}`} disabled={!!block} onClick={() => dispatch((st) => placeBuilding(st, hex, b.id))}>
           <span className="bo-name">
             <BuildingGlyph def={b} /> {b.name}
           </span>
-          <span className="bo-out">{outputParts(out).map((p) => p.text).join(' · ') || b.text}</span>
+          <span className="bo-out">{outputParts(out).map((p) => p.text).join(' · ') || '—'}</span>
           <CostChips cost={b.cost(1)} />
         </button>
       ))}
@@ -492,124 +512,78 @@ function BuildOptions({ hex }: { hex: Hex }) {
   )
 }
 
-// ── Muster ────────────────────────────────────────────────────────────
+// ── Right: muster ─────────────────────────────────────────────────────
 
 function MusterPanel() {
   const [s, dispatch] = useGame()
   const [open, setOpen] = useState<string | null>(null)
-  const now = absTurn(s)
-  const sorted = [...s.muster].sort((a, b) => a.leavesAfter - b.leavesAfter || b.price - a.price)
   const current = open ? s.muster.find((m) => m.unit.uid === open) : undefined
-  const left = (leavesAfter: number) => leavesAfter - now
+
+  if (current) {
+    return (
+      <UnitDetail
+        inline
+        unit={current.unit}
+        s={s}
+        inTroop={false}
+        onClose={() => setOpen(null)}
+        actions={
+          <button
+            className="btn btn-primary"
+            disabled={!canRecruit(s, current.unit.uid)}
+            onClick={() => {
+              dispatch((st) => recruit(st, current.unit.uid))
+              setOpen(null)
+            }}
+          >
+            Recruit <b className="morale-cost">✦{current.price}</b>
+          </button>
+        }
+      />
+    )
+  }
 
   return (
     <div>
       <div className="muster-head">
         <p className="lede" data-help="muster">
-          Your people, waiting to serve. Each stays {CONFIG.muster.lifespan} turns. Recruiting costs <b>morale</b>.
+          This turn’s muster. Recruit with <b>morale</b>; a new muster is called next turn.
         </p>
-        <button className="btn btn-small" data-help="reroll" disabled={!canReroll(s)} onClick={() => dispatch(rerollMuster)} title="Send them home and call a fresh muster">
-          ↻ New muster <b className="morale-cost">✦{rerollCost(s)}</b>
+        <button className="btn btn-small" data-help="reroll" disabled={!canReroll(s)} onClick={() => dispatch(rerollMuster)}>
+          ↻ Reroll <b className="morale-cost">✦{rerollCost(s)}</b>
         </button>
       </div>
       <div className="muster-morale" data-help="morale">
         ✦ {s.morale} morale · fields ×{moraleMult(s.morale).toFixed(2)}
       </div>
-
-      {sorted.length === 0 && <p className="empty">No one is waiting. More are born each turn.</p>}
+      {s.muster.length === 0 && <p className="empty">Everyone answered. A new muster is called next turn.</p>}
       <div className="portrait-grid">
-        {sorted.map((c) => {
-          const l = left(c.leavesAfter)
-          return (
-            <button key={c.unit.uid} className={`portrait-tile ${c.price > s.morale ? 'poor' : ''}`} onClick={() => setOpen(c.unit.uid)} title={c.unit.name}>
-              <Portrait unit={c.unit} size={84} />
-              <span className="pt-name">{c.unit.name.split(' ').slice(0, 2).join(' ')}</span>
-              <span className="pt-meta">
-                <span style={{ color: RARITY_COLOR[c.unit.rarity] }}>{c.unit.rarity}</span> {TYPE_DEFS[c.unit.type].label}
-              </span>
-              <span className="pt-foot">
-                <b className="morale-cost">✦{c.price}</b>
-                <span className={`leaves ${l <= 1 ? 'soon' : ''}`}>{l <= 0 ? 'leaving' : `${l}t`}</span>
-              </span>
-            </button>
-          )
-        })}
-      </div>
-
-      {current && (
-        <UnitDetail
-          unit={current.unit}
-          s={s}
-          inTroop={false}
-          onClose={() => setOpen(null)}
-          actions={
-            <span className="us-actions">
-              <span className={`leaves ${left(current.leavesAfter) <= 1 ? 'soon' : ''}`}>
-                {left(current.leavesAfter) <= 0 ? 'leaves after this turn' : `waits ${left(current.leavesAfter)} more turn${left(current.leavesAfter) === 1 ? '' : 's'}`}
-              </span>
-              <button
-                className="btn btn-primary"
-                disabled={!canRecruit(s, current.unit.uid)}
-                onClick={() => {
-                  dispatch((st) => recruit(st, current.unit.uid))
-                  setOpen(null)
-                }}
-              >
-                Recruit <b className="morale-cost">✦{current.price}</b>
-              </button>
+        {s.muster.map((c) => (
+          <button key={c.unit.uid} className={`portrait-tile ${c.price > s.morale ? 'poor' : ''}`} onClick={() => setOpen(c.unit.uid)} title={c.unit.name}>
+            <Portrait unit={c.unit} size={84} />
+            <span className="pt-name">{c.unit.name.split(' ').slice(0, 2).join(' ')}</span>
+            <span className="pt-meta">
+              <span style={{ color: RARITY_COLOR[c.unit.rarity] }}>{c.unit.rarity}</span> {TYPE_DEFS[c.unit.type].label}
             </span>
-          }
-        />
-      )}
-    </div>
-  )
-}
-
-// ── Deeds ─────────────────────────────────────────────────────────────
-
-function DeedsPanel({ onFocusTile }: { onFocusTile: (h: Hex) => void }) {
-  const [s, dispatch] = useGame()
-  const camps = s.map.tiles.filter((t) => t.camp)
-  const reachable = camps.filter((t) => frontier(s.map).some((f) => f.q === t.q && f.r === t.r))
-  return (
-    <div>
-      <p className="lede pad-b" data-help="deed">
-        One deed per turn. Tasks are safe. Raiding a camp is real combat: units can die, but it pays and claims the land.
-        {s.deedDone && <b> You’ve taken this turn’s deed.</b>}
-      </p>
-      <div className="tasks">
-        {s.tasks.map((t) => (
-          <button key={t.id} className="task" data-help="task" disabled={!canDoTask(s, t.id)} onClick={() => dispatch((st) => doTask(st, t.id))}>
-            <span className="task-title">{taskTitle(t)}</span>
-            <span className="task-text">{taskText(t)}</span>
+            <span className="pt-foot">
+              <b className="morale-cost">✦{c.price}</b>
+            </span>
           </button>
         ))}
       </div>
-      <h3 className="section-title" data-help="camp">
-        Camps
-      </h3>
-      {camps.length === 0 && <p className="empty">The land is quiet.</p>}
-      <ul className="camp-list">
-        {camps.map((t) => (
-          <li key={hexKey(t)}>
-            <button className="linkish" onClick={() => onFocusTile(t)}>
-              ☠ {t.camp!.name} <small>{'I'.repeat(t.camp!.strength)}</small>
-            </button>
-            <span className={reachable.includes(t) ? 'ok' : 'muted'}>{reachable.includes(t) ? 'on your border' : 'out of reach'}</span>
-          </li>
-        ))}
-      </ul>
     </div>
   )
 }
 
-// ── Scout ─────────────────────────────────────────────────────────────
+// ── Right: scout ──────────────────────────────────────────────────────
 
-function ScoutPanel() {
+function ScoutPanel({ onFocusTile }: { onFocusTile: (h: Hex) => void }) {
   const [s] = useGame()
   const g = s.ghost
   if (!g) return null
   const turnsLeft = CONFIG.turnsPerRound - s.turn
+  const camps = s.map.tiles.filter((t) => t.camp)
+  const border = new Set(frontier(s.map).map(hexKey))
   return (
     <div>
       <div className="scout-head" data-help="scout">
@@ -623,15 +597,26 @@ function ScoutPanel() {
               {AFFINITY_LABEL[a]}
             </span>
           ))}
-          . You meet them after turn {CONFIG.turnsPerRound}: {turnsLeft} turn{turnsLeft === 1 ? '' : 's'} from now.
+          . You meet them in {turnsLeft} turn{turnsLeft === 1 ? '' : 's'}. Lose and your civilization falls.
         </p>
       </div>
       <div className="scout-sealed">
         <span className="scout-seal">⚿</span>
-        <p>
-          Their troop is their own business. You’ll see who they field when the armies meet. Until then, plan around their land and leanings.
-        </p>
+        <p>Their troop stays hidden until the armies meet.</p>
       </div>
+      <h3 className="section-title" data-help="camp">
+        Camps
+      </h3>
+      <ul className="camp-list">
+        {camps.map((t) => (
+          <li key={hexKey(t)}>
+            <button className="linkish" onClick={() => onFocusTile(t)}>
+              ☠ {t.camp!.name} <small>{'I'.repeat(t.camp!.strength)}</small>
+            </button>
+            <span className={border.has(hexKey(t)) ? 'ok' : 'muted'}>{border.has(hexKey(t)) ? 'on your border' : 'out of reach'}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

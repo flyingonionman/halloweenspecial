@@ -6,14 +6,14 @@
  * For now every ghost comes from `aiGhost`; a backend can implement
  * GhostSource later and nothing else changes.
  *
- * Camps are NPC troops on the map, fought during a turn as a deed.
+ * Camps are NPC troops on the map, raided during a turn.
  */
 import { CONFIG, RARITIES } from './config'
-import { AFFINITIES, COMPOUND_SYNERGIES, type Affinity } from './affinities'
+import { AFFINITIES, AFFINITY_DEFS, affinitiesOfTier, type Affinity } from './affinities'
 import { birthCitizens } from './citizens'
 import { isRanged } from './units/types'
 import { unitPower, type Unit } from './units/unit'
-import { AFFINITY_TERRAIN, type TerrainId } from './world/terrain'
+import { TERRAIN_DEFS, type TerrainId } from './world/terrain'
 import type { TeamBonuses } from './world/city'
 import type { Camp } from './world/map'
 import type { Rng } from './rng'
@@ -44,14 +44,18 @@ interface TroopSpec {
 }
 
 function generateTroop(spec: TroopSpec, rng: Rng, makeUid: () => string): { troop: Unit[]; bonuses: TeamBonuses } {
-  const levels = Object.fromEntries(spec.focus.map((a) => [a, spec.research])) as Partial<Record<Affinity, number>>
-  const weights = Object.fromEntries(AFFINITIES.map((a) => [a, 1 + (spec.focus.includes(a) ? 4 + 4 * spec.research : 0)])) as Record<Affinity, number>
+  // Parents of the focus must be at least at the unlock level, or the focus couldn't exist.
+  const levels = Object.fromEntries(
+    spec.focus.map((a, i) => [a, i === 0 ? spec.research : Math.max(spec.research, AFFINITY_DEFS[spec.focus[0]!].tier > 1 ? CONFIG.affinity.unlockLevel : 0)]),
+  ) as Partial<Record<Affinity, number>>
+  const weights = Object.fromEntries(
+    AFFINITIES.map((a) => [a, spec.focus.includes(a) ? 5 + 4 * spec.research : AFFINITY_DEFS[a].tier === 1 ? 1 : 0]),
+  ) as Record<Affinity, number>
   const pool = birthCitizens(
     { population: spec.population, species: null, affinityWeights: weights, affinityLevels: levels },
     Math.max(12, spec.size * 5),
     rng,
     makeUid,
-    0,
   ).map((c) => c.unit)
 
   const score = (u: Unit) => unitPower(u) * (1 + 0.15 * spec.focus.reduce((s, a) => s + (u.affinities[a] ?? 0), 0))
@@ -77,12 +81,23 @@ function generateTroop(spec: TroopSpec, rng: Rng, makeUid: () => string): { troo
 
 const atRound = <T>(arr: readonly T[], round: number) => arr[Math.min(round, arr.length - 1)]!
 
+/** The land an affinity ultimately grows from: walk up to a tier-1 ancestor with land. */
+function homeOf(a: Affinity): TerrainId {
+  const d = AFFINITY_DEFS[a]
+  if (d.land?.[0]) return d.land[0]
+  for (const p of d.parents) {
+    const t = homeOf(p)
+    if (t !== 'plains') return t
+  }
+  return d.site !== 'any' && d.site[0] ? d.site[0] : 'plains'
+}
+
 export const aiGhosts: GhostSource = {
   find(round, rng, makeUid) {
     const o = CONFIG.opponent
-    const focus: Affinity[] = rng.chance(0.6)
-      ? [...rng.pick(COMPOUND_SYNERGIES).components]
-      : [rng.pick(AFFINITIES), rng.pick(AFFINITIES)].filter((a, i, arr) => arr.indexOf(a) === i)
+    // Opponents climb the tree as the rounds go on: a target affinity plus the parents that unlock it.
+    const target = rng.pick(affinitiesOfTier(atRound(o.targetTierByRound, round)))
+    const focus: Affinity[] = [target, ...AFFINITY_DEFS[target].parents]
     const { troop, bonuses } = generateTroop(
       {
         population: atRound(o.populationByRound, round),
@@ -95,7 +110,7 @@ export const aiGhosts: GhostSource = {
       rng,
       makeUid,
     )
-    return { name: rng.pick(CIV_NAMES), round, troop, bonuses, homeBiome: AFFINITY_TERRAIN[focus[0]!], focus, source: 'ai' }
+    return { name: rng.pick(CIV_NAMES), round, troop, bonuses, homeBiome: homeOf(target), focus, source: 'ai' }
   },
 }
 
@@ -103,11 +118,11 @@ export const aiGhosts: GhostSource = {
 export function campTroop(camp: Camp, terrain: TerrainId, round: number, rng: Rng, makeUid: () => string): { troop: Unit[]; bonuses: TeamBonuses } {
   const c = CONFIG.camps
   const pop = atRound(CONFIG.opponent.populationByRound, round) * (c.populationMult[camp.strength] ?? 1)
-  const local = (Object.entries(AFFINITY_TERRAIN) as [Affinity, TerrainId][]).find(([, t]) => t === terrain)?.[0]
+  const local = TERRAIN_DEFS[terrain].affinity
   return generateTroop(
     {
       population: Math.max(CONFIG.rarityThresholds.common, pop),
-      focus: local ? [local] : [rng.pick(AFFINITIES)],
+      focus: local ? [local] : [rng.pick(affinitiesOfTier(1))],
       research: 0,
       generic: 0,
       size: c.sizeByStrength[camp.strength] ?? 2,

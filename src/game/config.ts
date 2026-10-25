@@ -69,7 +69,12 @@ export const CONFIG = {
     /** Synergy effect multiplier by affinity level 0–4 (academy level). */
     levelMult: [0.6, 1, 1.35, 1.7, 2.1],
     maxLevel: 4,
-    /** Birth weight of an affinity = mutation + perTile × owned tiles of its terrain + perLevel × academy level + perAttune × attunement. */
+    /** A higher-tier affinity unlocks once every parent's academy reaches this level. */
+    unlockLevel: 2,
+    /**
+     * Birth weight. Tier 1 = mutation + perTile × your tiles of its land + research.
+     * Higher tiers are only born once researched: perLevel × academy level + perAttune × attunement.
+     */
     birthWeight: { mutation: 1, perTile: 2, perLevel: 4, perAttune: 1 },
     /** Per academy level: carriers' quality rolls skew upward. */
     qualityBiasPerLevel: 0.08,
@@ -82,9 +87,14 @@ export const CONFIG = {
   level: {
     max: 5,
     statPerLevel: 0.3,
-    /** Cost of going from level L to L+1 = rarityPrice * costFactor * costGrowth^(L-1). */
-    costFactor: 0.8,
-    costGrowth: 1.5,
+    /** Gold to go from level L to L+1 = goldBase × (rarity rank 1–5) × goldGrowth^(L-1). */
+    goldBase: 8,
+    goldGrowth: 2.2,
+    /** Higher levels also need materials: perLevel × (target − fromLevel + 1) once the target reaches fromLevel. */
+    materials: [
+      { resource: 'iron', fromLevel: 3, perLevel: 3 },
+      { resource: 'crystal', fromLevel: 4, perLevel: 3 },
+    ],
     /** Veterans (units that survived battles) upgrade cheaper. */
     discountPerBattleSurvived: 0.15,
     maxDiscount: 0.6,
@@ -94,10 +104,8 @@ export const CONFIG = {
   releaseRefund: 0.4,
 
   muster: {
-    /** Turns a newborn citizen waits to be recruited before moving on. */
-    lifespan: 3,
-    /** Citizens born per turn = base + perOrder × log10(population / 100). */
-    births: { base: 2, perOrder: 1 },
+    /** A fresh muster is called every turn: this many citizens (before species modifiers). */
+    size: 6,
     /** Rerolling the muster costs base + step × rerolls already made this turn. */
     reroll: { base: 20, step: 10 },
   },
@@ -115,7 +123,6 @@ export const CONFIG = {
     battleWin: 25,
     raidWin: 10,
     raidLoss: -10,
-    festival: 20,
   },
 
   economy: {
@@ -162,6 +169,8 @@ export const CONFIG = {
     populationByRound: [200, 1_500, 10_000, 60_000, 400_000],
     levelByRound: [1, 1.5, 2, 2.5, 3],
     researchByRound: [0, 1, 1, 2, 3],
+    /** Tier of the affinity the opponent builds its troop around. */
+    targetTierByRound: [1, 2, 2, 3, 4],
     genericByRound: [0, 0.1, 0.15, 0.25, 0.35],
   },
 

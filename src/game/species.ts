@@ -29,7 +29,7 @@ export interface SpeciesDef {
 
 export const SPECIES: Record<SpeciesId, SpeciesDef> = {
   human: { id: 'human', name: 'Humans', text: 'Earn interest on gold you hold at the end of each turn.', mods: { interest: true } },
-  ork: { id: 'ork', name: 'Orks', text: 'Twice as many citizens are born each turn.', mods: { birthsMult: 2 } },
+  ork: { id: 'ork', name: 'Orks', text: 'Twice as many citizens answer every muster.', mods: { birthsMult: 2 } },
   goblin: { id: 'goblin', name: 'Goblins', text: 'Two extra troop slots, but the odds of rarer citizens are halved.', mods: { troopSizeDelta: 2, rareOddsMult: 0.5 } },
   dwarf: { id: 'dwarf', name: 'Dwarves', text: 'Ranged citizens are almost never born, so your people are mostly melee.', mods: { rangedWeightMult: 0.05 } },
   elf: { id: 'elf', name: 'Elves', text: 'Units that fall in battle return afterwards.', mods: { noPermadeath: true } },

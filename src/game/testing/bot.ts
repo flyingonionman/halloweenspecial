@@ -3,16 +3,16 @@
  * worth of actions (it does not end the turn).
  *
  *   tempo   — strongest units, military buildings, few academies.
- *   synergy — commits to an affinity pair from its land, builds and upgrades their academies.
+ *   synergy — picks a tier-2 affinity its land can reach, raises both parents'
+ *             academies to the unlock level, then builds and raises the child's.
  */
-import { COMPOUND_SYNERGIES, type Affinity } from '../affinities'
+import { AFFINITIES, AFFINITY_DEFS, type Affinity } from '../affinities'
 import {
   buildBlock,
   canUpgradeBuilding,
   claimBlock,
   claimTile,
   claimCost,
-  doTask,
   finishBattle,
   placeBuilding,
   raidBlock,
@@ -22,7 +22,6 @@ import {
   troopSize,
   upgradeBuilding,
   upgradeUnit,
-  canDoTask,
   raidCamp,
   type GameState,
 } from '../game'
@@ -30,7 +29,7 @@ import { unitPower, type Unit } from '../units/unit'
 import { academyId, BUILDING_DEFS, type BuildingId } from '../world/buildings'
 import { frontier, ownedTiles, tileNeighbors } from '../world/map'
 import type { Hex } from '../world/hex'
-import { AFFINITY_TERRAIN, TERRAIN_DEFS, type TerrainId } from '../world/terrain'
+import { TERRAIN_DEFS, type TerrainId } from '../world/terrain'
 
 export type BotStyle = 'tempo' | 'synergy'
 export interface BotMemory {
@@ -45,9 +44,10 @@ const EXTRACTOR_FOR: Partial<Record<TerrainId, BuildingId>> = Object.fromEntries
 
 export function playTurn(s: GameState, style: BotStyle, mem: BotMemory): GameState {
   if (!mem.focus) {
-    const home = TERRAIN_DEFS[s.map.homeBiome].affinity!
-    const pair = COMPOUND_SYNERGIES.find((c) => c.components.includes(home))
-    mem.focus = pair ? [...pair.components] : [home]
+    const home = TERRAIN_DEFS[s.map.homeBiome].affinity ?? 'fire'
+    const child = AFFINITIES.find((c) => AFFINITY_DEFS[c].tier === 2 && AFFINITY_DEFS[c].parents.includes(home))
+    // Research order: parents first (to the unlock level), then the child.
+    mem.focus = child ? [...AFFINITY_DEFS[child].parents, child] : [home]
   }
   const focus = mem.focus
   const fit = (u: Unit) => focus.reduce((n, a) => n + (u.affinities[a] ?? 0), 0)
@@ -68,7 +68,10 @@ export function playTurn(s: GameState, style: BotStyle, mem: BotMemory): GameSta
       if (existing) {
         if (canUpgradeBuilding(s, existing)) s = upgradeBuilding(s, existing)
       } else {
-        const spot = bare().sort((x, y) => adjCount(s, y, AFFINITY_TERRAIN[a]) - adjCount(s, x, AFFINITY_TERRAIN[a]))[0]
+        const attune = AFFINITY_DEFS[a].attune
+        const spot = bare()
+          .filter((t) => !buildBlock(s, t, academyId(a)))
+          .sort((x, y) => adjCount(s, y, attune) - adjCount(s, x, attune))[0]
         if (spot && !buildBlock(s, spot, academyId(a))) s = placeBuilding(s, spot, academyId(a))
       }
     }
@@ -86,25 +89,22 @@ export function playTurn(s: GameState, style: BotStyle, mem: BotMemory): GameSta
       continue
     }
     const weakest = [...s.troop].sort((a, b) => score(a) - score(b))[0]!
-    if (score(c.unit) > score(weakest) * 1.35 && s.stock.gold >= c.price) {
+    if (score(c.unit) > score(weakest) * 1.35 && s.morale >= c.price) {
       s = releaseUnit(moveToBench(s, weakest.uid), weakest.uid)
       s = recruit(s, c.unit.uid)
     }
   }
 
-  // 4. Deed: raid a weak camp when the troop is ready, else take the best task.
+  // 4. Raid a weak camp on the border when the troop is ready.
   const power = s.troop.reduce((n, u) => n + unitPower(u), 0)
   const camp = frontier(s.map).find((t) => t.camp && !raidBlock(s, t) && power > 220 * t.camp.strength * (1 + s.round))
-  if (camp) {
-    s = finishBattle(raidCamp(s, camp))
-  } else {
-    const pref = ['caravan', 'forage', 'census', 'drill', 'festival', 'prospect']
-    const task = [...s.tasks].sort((a, b) => pref.indexOf(a.kind) - pref.indexOf(b.kind)).find((t) => canDoTask(s, t.id))
-    if (task) s = doTask(s, task.id)
-  }
+  if (camp) s = finishBattle(raidCamp(s, camp))
 
   // 5. Expand toward focus terrain, then plains; keep a reserve for units.
-  const materials: TerrainId[] = style === 'tempo' ? ['hills', 'mountains', 'steppe'] : focus.map((a) => AFFINITY_TERRAIN[a])
+  const materials: TerrainId[] =
+    style === 'tempo'
+      ? ['hills', 'mountains', 'steppe']
+      : focus.flatMap((a) => [AFFINITY_DEFS[a].attune, ...(AFFINITY_DEFS[a].site === 'any' ? [] : AFFINITY_DEFS[a].site)])
   const want = (t: TerrainId) => (materials.includes(t) ? 3 : t === 'plains' || t === 'lake' ? 2 : 1)
   for (const t of frontier(s.map).sort((a, b) => want(b.terrain) - want(a.terrain))) {
     if (s.stock.gold - claimCost(s) < 6) break

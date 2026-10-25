@@ -37,7 +37,7 @@ const CAMP_NAMES = ['Bandit Hollow', 'Wight Barrow', 'Gnoll Warren', 'Witch Cops
 
 export function generateMap(rng: Rng, radius: number = CONFIG.map.radius): WorldMap {
   const all = hexesInRadius(radius)
-  const homeBiome = rng.pick(AFFINITY_TERRAINS)
+  const homeBiome = rng.pick(AFFINITY_TERRAINS.filter((t) => t !== 'lake'))
 
   // Region seeds: the centre ring leans hard toward the home biome; elsewhere is a mix.
   const seeds: { hex: Hex; terrain: TerrainId }[] = [{ hex: { q: 1, r: 0 }, terrain: homeBiome }]
