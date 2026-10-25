@@ -60,7 +60,9 @@ src/ui/              React UI; R3F board (board/Board3D.tsx) and battle playback
   board/BuildPanel.tsx     flat build list → detail view with turning 3D model
   help/                    click-to-learn: any non-button element with data-help="key" opens a glossary popover
   lexicon/                 ⚙ → Lexicon: tree diagram, buildings, units, species, terrain (generated from data)
-public/cursors/      gauntlet cursor SVGs   public/textures/   grass (Poly Haven CC0, shrunk to 512px WebP)
+public/cursors/      gauntlet cursor SVGs
+public/textures/     Poly Haven CC0 surfaces shrunk to 512px WebP (diff + normal): grass (plains/forest), rock (mountains),
+                     snow (tundra), mud (leyfield), volcanic, rocky (steppe). Mapped by SURFACE in Board3D; others are procedural.
 ```
 
 ## UI conventions the user asked for
@@ -71,6 +73,7 @@ public/cursors/      gauntlet cursor SVGs   public/textures/   grass (Poly Haven
 - Everything should fit on one screen; density/UX polish comes later.
 - Dark "war ledger" look: IM Fell English SC display, Alegreya Sans body, Martian Mono numbers; gauntlet cursor.
 - Board: curved "planet" island, night sky, **endless fog** past the edge (no visible ocean disc).
+- Owned territory must read **strongly**: wild land is pulled toward cold night (`WILD`), owned tops glow warm with a gold rim, and the border is a bright line over a soft halo.
 - Prefer cheap assets (≈100 KB textures, not 1K+ PBR sets); procedural where possible.
 
 ## Gotchas learned the hard way
@@ -85,5 +88,5 @@ public/cursors/      gauntlet cursor SVGs   public/textures/   grass (Poly Haven
 
 - Combat effects for the tree (placeholders); balance with `npm run balance` after big changes.
 - Real async PvP backend implementing `GhostSource`.
-- More cheap textures (rock, ice, lava) to match the grass; a Kenney hex kit was suggested for models.
+- Hills, highlands and lake still use procedural swatches; a Kenney hex kit was suggested for models.
 - Damage/elimination tuning, density pass on the UI.

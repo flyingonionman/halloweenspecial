@@ -413,42 +413,58 @@ function Turntable({ children }: { children: React.ReactNode }) {
   )
 }
 
-// ── Photo grass (Poly Haven, CC0, shrunk to 512px WebP) ───────────────
+// ── Photo surfaces (Poly Haven, CC0, shrunk to 512px WebP) ────────────
 
-/** Terrains that use the grass material, and the tint that turns it into each. */
-const GRASS_TINT: Partial<Record<TerrainId, string>> = {
-  plains: '#d6e2a2',
-  steppe: '#ffdc94',
-  forest: '#86a874',
+type SurfaceId = 'grass' | 'rock' | 'snow' | 'mud' | 'volcanic' | 'rocky'
+const SURFACE_IDS: SurfaceId[] = ['grass', 'rock', 'snow', 'mud', 'volcanic', 'rocky']
+
+/** Terrains with a photo surface, and the tint that turns the photo into that terrain. Others stay procedural. */
+const SURFACE: Partial<Record<TerrainId, { id: SurfaceId; tint: string }>> = {
+  plains: { id: 'grass', tint: '#d6e2a2' },
+  forest: { id: 'grass', tint: '#86a874' },
+  mountains: { id: 'rock', tint: '#e4e0da' },
+  tundra: { id: 'snow', tint: '#eef6ff' },
+  leyfield: { id: 'mud', tint: '#c4b0e8' },
+  volcanic: { id: 'volcanic', tint: '#ffb49a' },
+  steppe: { id: 'rocky', tint: '#ffe2a8' },
 }
-/** World units one grass texture repeat covers; UVs follow world position so neighbours join up. */
-const GRASS_SPAN = 5
+/** World units one texture repeat covers; UVs follow world position so neighbours join up. */
+const SURFACE_SPAN = 5
 
-interface Grass {
+interface Surface {
   map: THREE.Texture
   normal: THREE.Texture
 }
+type Surfaces = Record<SurfaceId, Surface>
 
-function useGrass(): Grass {
-  const [map, normal] = useTexture(['/textures/grass_diff.webp', '/textures/grass_nor.webp']) as [THREE.Texture, THREE.Texture]
+function useSurfaces(): Surfaces {
+  const urls = SURFACE_IDS.flatMap((id) => [`/textures/${id}_diff.webp`, `/textures/${id}_nor.webp`])
+  const texs = useTexture(urls) as THREE.Texture[]
   return useMemo(() => {
-    map.colorSpace = THREE.SRGBColorSpace
-    for (const t of [map, normal]) {
-      t.wrapS = t.wrapT = THREE.RepeatWrapping
-      t.anisotropy = 4
-    }
-    return { map, normal }
-  }, [map, normal])
+    const out = {} as Surfaces
+    SURFACE_IDS.forEach((id, i) => {
+      const map = texs[i * 2]!
+      const normal = texs[i * 2 + 1]!
+      map.colorSpace = THREE.SRGBColorSpace
+      for (const t of [map, normal]) {
+        t.wrapS = t.wrapT = THREE.RepeatWrapping
+        t.anisotropy = 4
+      }
+      out[id] = { map, normal }
+    })
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, texs)
 }
 
 /** Per-tile clones (sharing the image) offset to the tile's world position. */
-function grassFor(grass: Grass, x: number, z: number): Grass {
-  const k = (2 * HEX_R) / GRASS_SPAN
-  const out = { map: grass.map.clone(), normal: grass.normal.clone() }
+function surfaceFor(surface: Surface, x: number, z: number): Surface {
+  const k = (2 * HEX_R) / SURFACE_SPAN
+  const out = { map: surface.map.clone(), normal: surface.normal.clone() }
   for (const t of [out.map, out.normal]) {
     t.repeat.set(k, k)
     // the top cap's u runs along z and v along x
-    t.offset.set(z / GRASS_SPAN, x / GRASS_SPAN)
+    t.offset.set(z / SURFACE_SPAN, x / SURFACE_SPAN)
     t.needsUpdate = true
   }
   return out
@@ -456,7 +472,7 @@ function grassFor(grass: Grass, x: number, z: number): Grass {
 
 function Tiles({ map, selected, frontier, previews, onSelect }: Props) {
   const [hover, setHover] = useState<string | null>(null)
-  const grass = useGrass()
+  const surfaces = useSurfaces()
   const gl = useThree((s) => s.gl)
   // The DOM cursor rules can't see 3D objects, so switch the gauntlet here.
   gl.domElement.style.cursor = hover ? "url('/cursors/gauntlet-hover.svg') 3 2, pointer" : ''
@@ -475,7 +491,7 @@ function Tiles({ map, selected, frontier, previews, onSelect }: Props) {
             dimmed={!!previews && !previews[k]}
             onHover={(on) => setHover(on ? k : (h) => (h === k ? null : h))}
             onSelect={onSelect}
-            grass={grass}
+            surfaces={surfaces}
           />
         )
       })}
@@ -488,6 +504,11 @@ const hexGeo = new THREE.CylinderGeometry(HEX_R, HEX_R, 1, 6)
 // CylinderGeometry puts a corner on +z; a 6-segment ring needs thetaStart π/6 to line up
 // after being laid flat. Outer edge sits exactly on the tile rim.
 const ringGeo = new THREE.RingGeometry(HEX_R - 0.12, HEX_R + 0.01, 6, 1, Math.PI / 6)
+/** Thin gold rim on every tile you own. */
+const ownedRimGeo = new THREE.RingGeometry(HEX_R - 0.07, HEX_R - 0.02, 6, 1, Math.PI / 6)
+/** Owned tops glow faintly warm; wild land is pulled toward a cold night blue. */
+const OWNED_GLOW = '#2a1a08'
+const WILD = new THREE.Color('#0b0d18')
 
 interface TileProps {
   tile: Tile
@@ -498,10 +519,10 @@ interface TileProps {
   dimmed: boolean
   onHover: (on: boolean) => void
   onSelect: (h: Hex) => void
-  grass: Grass
+  surfaces: Surfaces
 }
 
-const TileMesh = function TileMesh({ tile, hovered, selected, frontier, preview, dimmed, onHover, onSelect, grass }: TileProps) {
+const TileMesh = function TileMesh({ tile, hovered, selected, frontier, preview, dimmed, onHover, onSelect, surfaces }: TileProps) {
   const group = useRef<THREE.Group>(null)
   const ring = useRef<THREE.Mesh>(null)
   const pose = useMemo(() => planetPose(...hexToWorld(tile)), [tile.q, tile.r])
@@ -510,15 +531,17 @@ const TileMesh = function TileMesh({ tile, hovered, selected, frontier, preview,
   /** Top tint multiplies the texture: white = full colour, darker = wild/dimmed. */
   const tint = useMemo(() => {
     const c = new THREE.Color('#ffffff')
-    if (!tile.owned) c.lerp(SHADE, frontier ? 0.4 : 0.68)
+    // Wild land sinks into cold night so your territory reads at a glance.
+    if (!tile.owned) c.lerp(WILD, frontier ? 0.55 : 0.8)
     if (dimmed) c.lerp(SHADE, 0.35)
     return c
   }, [tile.owned, frontier, dimmed])
   const wall = useMemo(() => new THREE.Color(TERRAIN_COLOR[tile.terrain]).multiplyScalar(0.42).multiply(tint), [tile.terrain, tint])
-  const grassTint = GRASS_TINT[tile.terrain]
-  const tileGrass = useMemo(() => (grassTint ? grassFor(grass, pose.position.x, pose.position.z) : null), [grass, grassTint, pose])
-  const topColor = useMemo(() => (grassTint ? new THREE.Color(grassTint).multiply(tint) : tint), [grassTint, tint])
-  const tex = tileGrass?.map ?? terrainTexture(tile.terrain)
+  const surf = SURFACE[tile.terrain]
+  const tileSurface = useMemo(() => (surf ? surfaceFor(surfaces[surf.id], pose.position.x, pose.position.z) : null), [surfaces, surf, pose])
+  const topColor = useMemo(() => (surf ? new THREE.Color(surf.tint).multiply(tint) : tint), [surf, tint])
+  const tex = tileSurface?.map ?? terrainTexture(tile.terrain)
+  const emissive = hovered ? '#4a3420' : tile.owned ? OWNED_GLOW : '#000000'
 
   useFrame((state, dt) => {
     const g = group.current
@@ -561,16 +584,21 @@ const TileMesh = function TileMesh({ tile, hovered, selected, frontier, preview,
           <meshStandardMaterial
             attach="material-1"
             map={tex}
-            normalMap={tileGrass?.normal ?? null}
+            normalMap={tileSurface?.normal ?? null}
             normalScale={new THREE.Vector2(1.4, 1.4)}
             color={topColor}
             roughness={lake ? 0.15 : 0.9}
             metalness={lake ? 0.3 : 0}
-            emissive={hovered ? '#4a3420' : '#000000'}
+            emissive={emissive}
           />
           <meshStandardMaterial attach="material-2" color={wall} />
         </mesh>
         <group position-y={h}>
+          {tile.owned && !selected && (
+            <mesh geometry={ownedRimGeo} rotation-x={-Math.PI / 2} position-y={0.012}>
+              <meshBasicMaterial color="#ffc070" transparent opacity={0.4} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} />
+            </mesh>
+          )}
           {!tile.building && <Props terrain={tile.terrain} hex={tile} dim={!tile.owned} />}
           {tile.building && <BuildingMesh building={tile.building} />}
           {tile.camp && <CampMesh strength={tile.camp.strength} />}
@@ -600,7 +628,7 @@ const TileMesh = function TileMesh({ tile, hovered, selected, frontier, preview,
 
 function Props({ terrain, hex, dim }: { terrain: TerrainId; hex: Hex; dim: boolean }) {
   const j = (s: number) => jitter(hex, s)
-  const shade = (c: string) => (dim ? new THREE.Color(c).lerp(SHADE, 0.62) : new THREE.Color(c))
+  const shade = (c: string) => (dim ? new THREE.Color(c).lerp(WILD, 0.72) : new THREE.Color(c))
   switch (terrain) {
     case 'forest':
       return (
@@ -1035,5 +1063,11 @@ function Border({ map }: { map: WorldMap }) {
     return pts
   }, [map])
   if (!segments.length) return null
-  return <Line points={segments} segments color="#ffb36b" lineWidth={2.2} transparent opacity={0.85} />
+  return (
+    <>
+      {/* soft halo under a bright core */}
+      <Line points={segments} segments color="#ff9a3c" lineWidth={9} transparent opacity={0.28} depthWrite={false} toneMapped={false} />
+      <Line points={segments} segments color="#ffd08a" lineWidth={3.5} toneMapped={false} />
+    </>
+  )
 }
