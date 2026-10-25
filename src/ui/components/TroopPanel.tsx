@@ -8,6 +8,7 @@ import {
   moveToTroop,
   releaseRefund,
   releaseUnit,
+  swapUnits,
   synergyEffects,
   troopAffinityPoints,
   troopSize,
@@ -32,6 +33,36 @@ export function TroopPanel() {
   // Grouped by affinity tier; within a tier, active synergies and bigger stacks first.
   const synergies = computeSynergies(s.troop, levels).sort(
     (a, b) => AFFINITY_DEFS[a.def.id].tier - AFFINITY_DEFS[b.def.id].tier || b.tier - a.tier || b.points[0]! - a.points[0]!,
+  )
+
+  // Drag a card onto another to swap places; onto an empty post or the bench to move it there.
+  const [dragging, setDragging] = useState<string | null>(null)
+  const dropZone = (target: string) => ({
+    onDragOver: (e: React.DragEvent) => dragging && e.preventDefault(),
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const uid = dragging
+      setDragging(null)
+      if (!uid) return
+      dispatch((st) => (target === 'troop' ? moveToTroop(st, uid) : target === 'bench' ? moveToBench(st, uid) : swapUnits(st, uid, target)))
+    },
+  })
+  const card = (u: (typeof s.troop)[number], where: 'troop' | 'bench') => (
+    <div
+      key={u.uid}
+      className={`drag-card ${dragging === u.uid ? 'dragging' : ''}`}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData('text/plain', u.uid)
+        setDragging(u.uid)
+      }}
+      onDragEnd={() => setDragging(null)}
+      {...dropZone(u.uid)}
+    >
+      <UnitCard unit={u} compact footer={actions(u.uid, where)} />
+    </div>
   )
 
   const actions = (uid: string, where: 'troop' | 'bench') => {
@@ -74,9 +105,9 @@ export function TroopPanel() {
         {Array.from({ length: size }, (_, i) => {
           const u = s.troop[i]
           return u ? (
-            <UnitCard key={u.uid} unit={u} compact footer={actions(u.uid, 'troop')} />
+            card(u, 'troop')
           ) : (
-            <div key={`empty-${i}`} className="slot-empty">
+            <div key={`empty-${i}`} className="slot-empty" {...dropZone('troop')}>
               empty post
             </div>
           )
@@ -128,10 +159,10 @@ export function TroopPanel() {
       <h3 className="section-title" data-help="bench">
         Bench <small>{s.bench.length}/{CONFIG.benchSize}</small>
       </h3>
-      <div className="bench">
+      <div className="bench" {...dropZone('bench')}>
         {s.bench.length === 0 && <p className="empty">Benched units stay with you between battles.</p>}
         {s.bench.map((u) => (
-          <UnitCard key={u.uid} unit={u} compact footer={actions(u.uid, 'bench')} />
+          card(u, 'bench')
         ))}
       </div>
     </div>

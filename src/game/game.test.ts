@@ -31,6 +31,7 @@ import {
   raidCamp,
   rarityOdds,
   recruit,
+  swapUnits,
   musterCost,
   callMuster,
   moraleMult,
@@ -368,6 +369,17 @@ describe('turns & deeds', () => {
     const rich = effectiveYields({ map: s.map, morale: CONFIG.morale.max, troop: [] })
     const poor = effectiveYields({ map: s.map, morale: 0, troop: [] })
     expect(rich.gold).toBeGreaterThan(poor.gold)
+  })
+
+  it('swapping units trades their places within and across troop and bench', () => {
+    const m = callMuster({ ...started(4), morale: CONFIG.morale.max }).muster.map((c) => c.unit)
+    const s: GameState = { ...started(4), troop: [m[0]!, m[1]!], bench: [m[2]!] }
+    const ids = (u: { uid: string }[]) => u.map((x) => x.uid)
+    const reordered = swapUnits(s, m[0]!.uid, m[1]!.uid)
+    expect(ids(reordered.troop)).toEqual([m[1]!.uid, m[0]!.uid])
+    const crossed = swapUnits(s, m[2]!.uid, m[0]!.uid)
+    expect(ids(crossed.troop)).toEqual([m[2]!.uid, m[1]!.uid])
+    expect(ids(crossed.bench)).toEqual([m[0]!.uid])
   })
 
   it('recruiting (calling a muster) costs morale, more each time; calling again replaces it', () => {
