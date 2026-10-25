@@ -62,7 +62,8 @@ src/ui/              React UI; R3F board (board/Board3D.tsx) and battle playback
   lexicon/                 ⚙ → Lexicon: tree diagram, buildings, units, species, terrain (generated from data)
 public/cursors/      gauntlet cursor SVGs
 public/textures/     Poly Haven CC0 surfaces shrunk to 512px WebP (diff + normal): grass (plains/forest), rock (mountains),
-                     snow (tundra), mud (leyfield), volcanic, rocky (steppe). Mapped by SURFACE in Board3D; others are procedural.
+                     snow (tundra), mud (leyfield), volcanic, rocky (steppe), forestground (hills), trail (highlands).
+                     Mapped by SURFACE in Board3D; only lake is still procedural.
 ```
 
 ## UI conventions the user asked for
@@ -88,5 +89,5 @@ public/textures/     Poly Haven CC0 surfaces shrunk to 512px WebP (diff + normal
 
 - Combat effects for the tree (placeholders); balance with `npm run balance` after big changes.
 - Real async PvP backend implementing `GhostSource`.
-- Hills, highlands and lake still use procedural swatches; a Kenney hex kit was suggested for models.
+- Lake still uses a procedural swatch; a Kenney hex kit was suggested for models.
 - Damage/elimination tuning, density pass on the UI.

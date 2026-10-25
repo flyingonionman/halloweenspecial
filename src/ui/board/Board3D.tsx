@@ -415,8 +415,8 @@ function Turntable({ children }: { children: React.ReactNode }) {
 
 // ── Photo surfaces (Poly Haven, CC0, shrunk to 512px WebP) ────────────
 
-type SurfaceId = 'grass' | 'rock' | 'snow' | 'mud' | 'volcanic' | 'rocky'
-const SURFACE_IDS: SurfaceId[] = ['grass', 'rock', 'snow', 'mud', 'volcanic', 'rocky']
+type SurfaceId = 'grass' | 'rock' | 'snow' | 'mud' | 'volcanic' | 'rocky' | 'forestground' | 'trail'
+const SURFACE_IDS: SurfaceId[] = ['grass', 'rock', 'snow', 'mud', 'volcanic', 'rocky', 'forestground', 'trail']
 
 /** Terrains with a photo surface, and the tint that turns the photo into that terrain. Others stay procedural. */
 const SURFACE: Partial<Record<TerrainId, { id: SurfaceId; tint: string }>> = {
@@ -427,6 +427,8 @@ const SURFACE: Partial<Record<TerrainId, { id: SurfaceId; tint: string }>> = {
   leyfield: { id: 'mud', tint: '#c4b0e8' },
   volcanic: { id: 'volcanic', tint: '#ffb49a' },
   steppe: { id: 'rocky', tint: '#ffe2a8' },
+  hills: { id: 'forestground', tint: '#f0dcb0' },
+  highlands: { id: 'trail', tint: '#d4ece6' },
 }
 /** World units one texture repeat covers; UVs follow world position so neighbours join up. */
 const SURFACE_SPAN = 5
