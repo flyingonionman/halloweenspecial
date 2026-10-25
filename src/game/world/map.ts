@@ -11,7 +11,7 @@ import type { Affinity } from '../affinities'
 import { CONFIG } from '../config'
 import type { Rng } from '../rng'
 import { hexDistance, hexKey, hexesInRadius, neighbors, type Hex } from './hex'
-import { BIOME_SPECIALS, BIOMES, TERRAINS, type Biome, type TerrainId } from './terrain'
+import { BIOME_SPECIALS, BIOMES, TERRAINS, type Biome, type Material, type TerrainId } from './terrain'
 import type { BuildingId } from './buildings'
 
 export interface Camp {
@@ -29,6 +29,19 @@ export interface PlacedBuilding {
   /** Academies: a dedication, raise or evolution paid this turn; it takes effect next turn. */
   pending?: { affinity: Affinity; level: number }
   /** Academies: its essence upkeep couldn't be paid last turn, so it teaches nothing until it is. */
+  starved?: boolean
+  /** Trading Post: standing trade routes, paid from every turn's income. */
+  routes?: TradeRoute[]
+}
+
+/** Every turn: give `amount` × the trade rate of `give`, receive `amount` of `get`. */
+export interface TradeRoute {
+  give: Material
+  get: Material
+  amount: number
+  /** Opened this turn: its income is committed now; it starts delivering next turn. */
+  pending?: boolean
+  /** Couldn't be paid last turn. */
   starved?: boolean
 }
 

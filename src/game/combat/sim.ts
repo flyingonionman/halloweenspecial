@@ -385,7 +385,7 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
           for (const e of enemiesOf(u)) if (e !== target && cellDistance(A, e.cell, target.cell) === 1) strike(e, 1)
           break
         case 'blast':
-          for (const e of enemiesOf(u)) if (cellDistance(A, e.cell, target.cell) <= 1) strike(e, 1.8)
+          for (const e of enemiesOf(u)) if (cellDistance(A, e.cell, target.cell) <= C.blastRadius) strike(e, 1.8)
           break
         case 'volley':
           for (const e of enemiesOf(u)

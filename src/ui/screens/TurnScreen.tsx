@@ -22,7 +22,12 @@ import {
   campRarityHint,
   canRecruit,
   canCallMuster,
-  canTrade,
+  netYields,
+  tradeRoutes,
+  routeBlock,
+  routeCost,
+  openRoute,
+  closeRoute,
   canUpgradeBuilding,
   city,
   civTier,
@@ -48,7 +53,6 @@ import {
   territoryCap,
   tierProgress,
   tileAt,
-  trade,
   upgradeBuilding,
   type BuildingId,
   type GameState,
@@ -394,38 +398,87 @@ const CLAIM_REASON = {
   earth: 'Not enough mud.',
 } as const
 
-/** Opened from the Trading Post's tile. */
+/**
+ * Opened from the Trading Post's tile. Like an academy, trade is committed
+ * throughput: a route turns part of every turn's income of one material into
+ * another, from next turn on.
+ */
 function TradeBox() {
   const [s, dispatch] = useGame()
   const rate = city(s).tradeRate
-  const [give, setGive] = useState<Material>('stone')
-  const [get, setGet] = useState<Material>('fire')
+  const net = netYields(s)
+  // Default to giving whatever you have the most spare income of.
+  const spare = [...MATERIALS].sort((a, b) => net[b] - net[a])[0] ?? 'stone'
+  const [give, setGive] = useState<Material>(spare)
+  const [get, setGet] = useState<Material>(spare === 'stone' ? 'fire' : 'stone')
+  const [amount, setAmount] = useState(1)
   if (rate === null) return null
+  const routes = tradeRoutes(s)
+  const block = routeBlock(s, give, get, amount)
+  const cost = routeCost(s, { amount })
   return (
     <div className="trade-box">
       <span className="label" data-help="trade">
-        Trade {rate}:1
+        Trade routes · {rate}:1 · {routes.length}/{CONFIG.trade.maxRoutes}
       </span>
-      <div className="trade">
-        <select value={give} onChange={(e) => setGive(e.target.value as Material)}>
-          {MATERIALS.map((m) => (
-            <option key={m} value={m}>
-              {RESOURCE_LABEL[m]} ({s.stock[m]})
-            </option>
+      {routes.length > 0 && (
+        <ul className="routes">
+          {routes.map((r, i) => (
+            <li key={i} className={r.starved ? 'starved' : ''}>
+              <span style={{ color: RESOURCE_COLOR[r.give] }}>
+                −{routeCost(s, r)}
+                {RESOURCE_GLYPH[r.give]}
+              </span>
+              <span>→</span>
+              <span style={{ color: RESOURCE_COLOR[r.get] }}>
+                +{r.amount}
+                {RESOURCE_GLYPH[r.get]}
+              </span>
+              <small>/turn{r.pending ? ' · from next turn' : r.starved ? ' · unpaid last turn' : ''}</small>
+              <button className="btn btn-small btn-ghost" onClick={() => dispatch((st) => closeRoute(st, i))} aria-label="Close route">
+                ×
+              </button>
+            </li>
           ))}
-        </select>
-        <span>→</span>
-        <select value={get} onChange={(e) => setGet(e.target.value as Material)}>
-          {MATERIALS.map((m) => (
-            <option key={m} value={m}>
-              {RESOURCE_LABEL[m]}
-            </option>
-          ))}
-        </select>
-        <button className="btn btn-small" disabled={!canTrade(s, give, get)} onClick={() => dispatch((st) => trade(st, give, get))}>
-          Trade
-        </button>
-      </div>
+        </ul>
+      )}
+      {routes.length < CONFIG.trade.maxRoutes && (
+        <div className="trade">
+          <select value={amount} onChange={(e) => setAmount(Number(e.target.value))} aria-label="Amount per turn">
+            {[1, 2, 3, 4, 5, 6].map((n) => (
+              <option key={n} value={n}>
+                {n * rate}
+              </option>
+            ))}
+          </select>
+          <select value={give} onChange={(e) => setGive(e.target.value as Material)} aria-label="Give">
+            {MATERIALS.map((m) => (
+              <option key={m} value={m}>
+                {RESOURCE_LABEL[m]} (free {Math.max(0, net[m])}/turn)
+              </option>
+            ))}
+          </select>
+          <span>→ {amount}</span>
+          <select value={get} onChange={(e) => setGet(e.target.value as Material)} aria-label="Get">
+            {MATERIALS.map((m) => (
+              <option key={m} value={m}>
+                {RESOURCE_LABEL[m]}
+              </option>
+            ))}
+          </select>
+          <button
+            className="btn btn-small btn-primary"
+            onClick={(e) => {
+              if (block === 'flow') return deny(e.currentTarget, `Not enough free income: this route needs ${cost} ${RESOURCE_LABEL[give]} a turn and you have ${Math.max(0, net[give])} spare.`)
+              if (block === 'same') return deny(e.currentTarget, 'Pick two different resources.')
+              if (!block) dispatch((st) => openRoute(st, give, get, amount))
+            }}
+          >
+            Open route
+          </button>
+        </div>
+      )}
+      <p className="muted">Each turn, from next turn on. Your income of the given resource is set aside now.</p>
     </div>
   )
 }

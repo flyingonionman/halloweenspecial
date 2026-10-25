@@ -121,7 +121,7 @@ export const BUILDING_DEFS: Record<BuildingId, BuildingDef> = {
     id: 'trading-post',
     name: 'Trading Post',
     kind: 'civic',
-    text: 'Open it to trade resources. Better rates beside a lake or market.',
+    text: 'Open it to set up trade routes: part of every turn’s income of one material, turned into another. Better rates beside a lake or market.',
     allowed: 'any',
     unique: true,
     maxLevel: 1,

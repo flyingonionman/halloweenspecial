@@ -11,6 +11,7 @@
     "test:watch": "vitest --exclude \"**/*.probe.test.ts\"",
     "balance": "vitest run balance.probe --silent=false",
     "sim": "vitest run sim.probe --silent=false",
+    "comps": "vitest run comps.probe --silent=false",
     "models": "node scripts/unit-models.mjs",
     "typecheck": "tsc --noEmit"
   },

@@ -168,6 +168,8 @@ export const CONFIG = {
   trade: {
     /** Give `rate` of one resource for 1 of another. Improved by Trading Post adjacency, floored at `best`. */
     worst: 4,
+    /** Standing routes a Trading Post can run at once. */
+    maxRoutes: 3,
     best: 2,
   },
 
@@ -222,6 +224,8 @@ export const CONFIG = {
     castTicks: 8,
     /** Taunt: reach in cells and how long enemies are locked onto the tank. */
     tauntRadius: 3,
+    /** Mage Blast: hits every enemy within this many cells of its target. */
+    blastRadius: 2,
     tauntTicks: 30,
     /** Healers: an ally counts as hurt below this fraction of max HP. */
     hurtBelow: 0.97,

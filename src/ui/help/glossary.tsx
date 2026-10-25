@@ -198,7 +198,7 @@ const STATIC: Record<string, Resolver> = {
   }),
   trade: (s) => ({
     title: 'Trade',
-    body: `Open your Trading Post’s tile to trade. Swap any material for another at a fixed rate: ${CONFIG.trade.worst}:1 by default, improved by a lake or market beside the post, down to ${CONFIG.trade.best}:1.`,
+    body: `Open your Trading Post’s tile to run trade routes (up to ${CONFIG.trade.maxRoutes}). Like an academy, a route commits income: every turn it gives N × the rate of one material and brings in N of another. The rate is ${CONFIG.trade.worst}:1 by default, improved by a lake or market beside the post, down to ${CONFIG.trade.best}:1. The income is set aside the moment you open a route; deliveries start next turn, and a turn it can’t be paid it delivers nothing. Close a route any time.`,
     live: city(s).tradeRate !== null ? `Your rate: ${city(s).tradeRate}:1.` : 'You have no Trading Post.',
     see: ['building:trading-post'],
   }),

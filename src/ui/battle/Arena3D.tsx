@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, useGLTF, useTexture } from '@react-three/drei'
 import * as THREE from 'three'
-import { FLAG, RARITIES, TYPE_DEFS, UNIT_TYPES, arena, eventsUntil, isRanged, primaryAffinity, type AffinityPoints, type CombatResult, type UnitType } from '../../game'
+import { CONFIG, FLAG, RARITIES, TYPE_DEFS, UNIT_TYPES, arena, eventsUntil, isRanged, primaryAffinity, type AffinityPoints, type CombatResult, type UnitType } from '../../game'
 import { RARITY_COLOR, unitColor } from '../theme'
 import { CELL, TPS, actionAt, buildTimeline, frameAt, poseAt, type Timeline } from './playback'
 import { MODEL_URL, TEAM_HUE, armRig, dressModel, poseArms, skinOf, type ArmRig } from './models'
@@ -487,7 +487,8 @@ function Scene({ result, clock, onTick, selected, onSelect, showAggro, overlay }
           m.geometry = fx.geos.ball
           m.rotation.set(0, 0, 0)
           m.position.set(tgt.x, 0.6, tgt.z)
-          m.scale.setScalar(0.4 + k * 1.6)
+          // Grows out to the blast radius (cells are √3 apart).
+          m.scale.setScalar(0.5 + k * CONFIG.combat.blastRadius * Math.sqrt(3) * CELL)
           setFx(m, magicColor(result.roster[e.id]!.affinities), 0.8 * (1 - k))
         } else if (e.ability === 'cleave') {
           m.geometry = fx.geos.ring

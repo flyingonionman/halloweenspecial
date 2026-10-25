@@ -23,7 +23,7 @@ import { BUILDING_DEFS, buildingName, canPlaceOn, totalCost, type BuildingId } f
 import { cityBonuses, evaluateCity, isUnlocked, type CityStats } from './world/city'
 import { troopEconomy } from './synergy'
 import { hexKey, type Hex } from './world/hex'
-import { frontier, generateMap, ownedTiles, tileAt, type PlacedBuilding, type WorldMap } from './world/map'
+import { frontier, generateMap, ownedTiles, tileAt, type PlacedBuilding, type TradeRoute, type WorldMap } from './world/map'
 import { RESOURCE_LABEL, TERRAIN_DEFS, emptyStock, type Cost, type Material, type Stock } from './world/terrain'
 
 export type Phase = 'species' | 'turn' | 'battle' | 'over'
@@ -346,10 +346,11 @@ export function academyUpkeep(s: Pick<GameState, 'map'>): Cost {
   return out
 }
 
-/** Income per turn after academy upkeep (an essence can go negative: the shortfall comes out of stock). */
+/** Income per turn after academy upkeep and trade routes (can go negative: the shortfall comes out of stock). */
 export function netYields(s: EconView): Record<keyof CityStats['yields'], number> {
   const y = { ...effectiveYields(s) }
   for (const [k, v] of Object.entries(academyUpkeep(s)) as [keyof typeof y, number][]) y[k] -= v
+  for (const [k, v] of Object.entries(routeFlows(s)) as [keyof typeof y, number][]) y[k] += v
   return y
 }
 
@@ -473,17 +474,72 @@ export function demolish(state: GameState, h: Hex): GameState {
 
 // ── Trade ─────────────────────────────────────────────────────────────
 
-export function canTrade(s: GameState, give: Material, get: Material): boolean {
-  const rate = city(s).tradeRate
-  return s.phase === 'turn' && rate !== null && give !== get && s.stock[give] >= rate
+//
+// The Trading Post works like an academy: you commit throughput. A route gives
+// `amount` × the trade rate of one material from every turn's income and brings
+// in `amount` of another. It's committed at once, delivers from next turn, and
+// is skipped (starved) on a turn it can't be paid. Cancelling frees the income.
+
+const tradingPost = (s: Pick<GameState, 'map'>) => owned(s).find((t) => t.building?.id === 'trading-post') ?? null
+
+export const tradeRoutes = (s: Pick<GameState, 'map'>): TradeRoute[] => tradingPost(s)?.building?.routes ?? []
+
+/** What a route costs per turn at today's rate. */
+export const routeCost = (s: Pick<GameState, 'map'>, r: Pick<TradeRoute, 'amount'>) => r.amount * (city(s).tradeRate ?? CONFIG.trade.worst)
+
+/** Per-turn income changes from all routes: committed gives (all) and deliveries (active ones). */
+export function routeFlows(s: Pick<GameState, 'map'>): Cost {
+  const out: Cost = {}
+  for (const r of tradeRoutes(s)) {
+    out[r.give] = (out[r.give] ?? 0) - routeCost(s, r)
+    if (!r.pending) out[r.get] = (out[r.get] ?? 0) + r.amount
+  }
+  return out
 }
 
-export function trade(state: GameState, give: Material, get: Material): GameState {
-  if (!canTrade(state, give, get)) return state
+export type RouteBlock = 'no-post' | 'same' | 'max' | 'amount' | 'flow' | null
+
+export function routeBlock(s: GameState, give: Material, get: Material, amount: number): RouteBlock {
+  if (!tradingPost(s)) return 'no-post'
+  if (give === get) return 'same'
+  if (tradeRoutes(s).length >= CONFIG.trade.maxRoutes) return 'max'
+  if (amount < 1 || !Number.isInteger(amount)) return 'amount'
+  if (netYields(s)[give] < routeCost(s, { amount })) return 'flow'
+  return null
+}
+
+export function openRoute(state: GameState, give: Material, get: Material, amount: number): GameState {
+  if (state.phase !== 'turn' || routeBlock(state, give, get, amount)) return state
   return produce(state, (s) => {
-    s.stock[give] -= city(state).tradeRate!
-    s.stock[get] += 1
+    const b = tradingPost(s)!.building!
+    ;(b.routes ??= []).push({ give, get, amount, pending: true })
+    log(s, `Opened a trade route: ${routeCost(s, { amount })} ${RESOURCE_LABEL[give]} → ${amount} ${RESOURCE_LABEL[get]} a turn, from next turn.`)
   })
+}
+
+export function closeRoute(state: GameState, index: number): GameState {
+  if (state.phase !== 'turn' || !tradeRoutes(state)[index]) return state
+  return produce(state, (s) => {
+    const b = tradingPost(s)!.building!
+    const [r] = b.routes!.splice(index, 1)
+    log(s, `Closed the ${RESOURCE_LABEL[r!.give]} → ${RESOURCE_LABEL[r!.get]} route.`)
+  })
+}
+
+/** End of turn: active routes pay and deliver (skipped if unpayable); new ones become active. */
+function runTrades(s: GameState) {
+  const post = tradingPost(s)
+  for (const r of post?.building?.routes ?? []) {
+    if (r.pending) {
+      r.pending = false
+      continue
+    }
+    const cost = routeCost(s, r)
+    r.starved = s.stock[r.give] < cost
+    if (r.starved) continue
+    s.stock[r.give] -= cost
+    s.stock[r.get] += r.amount
+  }
 }
 
 // ── Muster, troop & bench ─────────────────────────────────────────────
@@ -672,6 +728,7 @@ export function endTurn(state: GameState): GameState {
   return produce(state, (s, ctx) => {
     const c = city(s)
     for (const [k, v] of Object.entries(effectiveYields(s))) if (k !== 'food') s.stock[k as keyof Stock] += v
+    runTrades(s)
     runAcademies(s)
     if (speciesMods(s.species).interest) {
       const { per, max } = CONFIG.economy.interest

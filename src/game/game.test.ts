@@ -45,6 +45,10 @@ import {
   commitAcademy,
   netYields,
   AFFINITY_DEFS,
+  routeBlock,
+  openRoute,
+  closeRoute,
+  tradeRoutes,
   claimEarthCost,
   canOffer,
   offerLight,
@@ -195,6 +199,9 @@ describe('buildings & adjacency', () => {
     expect(evaluateBuilding(m, { q: 0, r: 0 }, 'barracks').output.atkPct!).toBeGreaterThan(before)
   })
 
+  /** Raw income this turn (before routes and academies), for checking deliveries. */
+  const effectiveYieldsOf = (s: GameState) => effectiveYields(s)
+
   /** A started game whose land is fire and earth country (all within 2 of the capital owned), well stocked. */
   const academyGame = () => {
     const s = started(4)
@@ -250,6 +257,28 @@ describe('buildings & adjacency', () => {
     expect(academyBlock(s, a!, evolve)).toBeNull()
     s = endTurn(commitAcademy(s, a!, evolve))
     expect(tileAt(s.map, a!)!.building).toMatchObject({ affinity: 'magma', level: 1 })
+  })
+
+  it('trade routes commit income now and deliver from next turn', () => {
+    let s = academyGame()
+    const spot = ownedTiles(s.map).find((t) => !t.building)!
+    expect(routeBlock(s, 'earth', 'stone', 1)).toBe('no-post')
+    s = placeBuilding(s, spot, 'trading-post')
+    const rate = city(s).tradeRate!
+    const mud = netYields(s).earth
+    expect(routeBlock(s, 'earth', 'stone', 999)).toBe('flow')
+    s = openRoute(s, 'earth', 'stone', 1)
+    expect(netYields(s).earth).toBe(mud - rate) // set aside at once
+    // The turn it opens: nothing moves yet.
+    const stone0 = s.stock.stone
+    s = endTurn(s)
+    expect(s.stock.stone).toBe(stone0 + effectiveYieldsOf(s).stone)
+    // From then on: pays rate mud, delivers 1 stone each turn.
+    const stone1 = s.stock.stone
+    s = endTurn(s)
+    expect(s.stock.stone).toBe(stone1 + effectiveYieldsOf(s).stone + 1)
+    s = closeRoute(s, 0)
+    expect(tradeRoutes(s)).toEqual([])
   })
 
   it('an academy whose upkeep cannot be paid starves and teaches nothing', () => {

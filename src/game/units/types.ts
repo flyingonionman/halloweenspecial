@@ -80,7 +80,7 @@ export const TYPE_DEFS: Record<UnitType, TypeDef> = {
     damage: 'magic',
     ability: 'blast',
     abilityLabel: 'Blast',
-    abilityText: 'Deals 180% attack as magic to the target and every enemy next to it.',
+    abilityText: `Deals 180% attack as magic to the target and every enemy within ${CONFIG.combat.blastRadius} cells of it.`,
   },
   healer: {
     id: 'healer',
