@@ -379,6 +379,16 @@ small {
   color: var(--bone-dim);
 }
 
+.corner-menu .cm-countdown {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--bone-dim);
+}
+
+.corner-menu .cm-countdown.now {
+  color: var(--ember);
+}
+
 /* compact timeline so five rounds fit beside the buttons */
 .corner-menu .timeline {
   gap: 5px;

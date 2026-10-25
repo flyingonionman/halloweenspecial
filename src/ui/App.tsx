@@ -158,6 +158,11 @@ function CornerMenu() {
               R{s.round + 1} · T{s.turn + 1}/{CONFIG.turnsPerRound}
             </span>
           )}
+          {s.phase === 'turn' && (
+            <span className={`cm-countdown ${last ? 'now' : ''}`} data-help="timeline">
+              {last ? '⚔ Battle after this turn' : `⚔ Battle in ${CONFIG.turnsPerRound - s.turn} turns`}
+            </span>
+          )}
         </span>
         {s.phase !== 'species' && (
           <ol className="timeline" aria-label="Rounds and turns" data-help="timeline">

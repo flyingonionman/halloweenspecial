@@ -10,7 +10,6 @@ import {
   RESOURCE_LABEL,
   STOCK_RESOURCES,
   TERRAIN_DEFS,
-  TYPE_DEFS,
   affinityOdds,
   birthRarityOdds,
   buildBlock,
@@ -21,8 +20,8 @@ import {
   offerLight,
   campLoot,
   campRarityHint,
-  canRecruit,
   canCallMuster,
+  canRecruit,
   canTrade,
   canUpgradeBuilding,
   city,
@@ -43,9 +42,6 @@ import {
   placeBuilding,
   raidBlock,
   raidCamp,
-  recruit,
-  musterCost,
-  callMuster,
   territoryCap,
   tierProgress,
   tileAt,
@@ -55,18 +51,17 @@ import {
   type GameState,
   type Hex,
   type Material,
+  type BuildBlock,
+  type BuildingDef,
   type Outputs,
   type ResourceId,
 } from '../../game'
 import { useGame } from '../useGame'
 import { Board3D, type TileOverlay, type TilePreview } from '../board/Board3D'
 import { BuildPanel } from '../board/BuildPanel'
-import { TroopPanel } from '../components/TroopPanel'
-import { Portrait } from '../components/Portrait'
-import { UnitDetail } from '../components/UnitDetail'
+import { ArmyPanel } from '../components/TroopPanel'
 import { AcademyPanel } from '../components/AcademyPanel'
-import { AffinityBadge } from '../components/UnitCard'
-import { deny, useRequirementCheck } from '../toast'
+import { useRequirementCheck } from '../toast'
 import { BuildingGlyph, CostChips } from '../components/BuildingBits'
 import { fmtOutputs, outputParts, outputScore } from '../format'
 import { AFFINITY_COLOR, AFFINITY_GLYPH, KIND_COLOR, PLAIN_COLOR, RARITY_COLOR, RESOURCE_COLOR, RESOURCE_GLYPH, TERRAIN_COLOR, fmtPop } from '../theme'
@@ -118,13 +113,13 @@ function lensOverlays(s: GameState, lens: Lens): Record<string, TileOverlay> | n
   return out
 }
 
-type RightTab = 'tile' | 'muster' | 'troop' | 'build' | 'scout'
+type RightTab = 'land' | 'army' | 'scout'
 
 export function TurnScreen() {
   const [s, dispatch] = useGame()
   const [selected, setSelected] = useState<Hex | null>(null)
   const [armed, setArmed] = useState<BuildingId | null>(null)
-  const [tab, setTab] = useState<RightTab>('muster')
+  const [tab, setTab] = useState<RightTab>('army')
 
   const frontierKeys = useMemo(() => new Set(frontier(s.map).map(hexKey)), [s.map])
   const check = useRequirementCheck()
@@ -162,14 +157,23 @@ export function TurnScreen() {
       return
     }
     setSelected(h)
-    if (h) setTab('tile')
+    if (h) setTab('land')
   }
 
+  // "Unused" dots: something on that tab can be done right now. A nudge, not a to-do list.
+  const unused = useMemo((): Partial<Record<RightTab, string>> => {
+    const owned = ownedTiles(s.map)
+    const out: Partial<Record<RightTab, string>> = {}
+    if (s.musterCalls === 0 ? canCallMuster(s) : s.muster.some((c) => canRecruit(s, c.unit.uid)))
+      out.army = s.musterCalls === 0 ? 'You can recruit this turn' : 'You can enlist someone waiting in the muster'
+    if (BUILDINGS.some((b) => owned.some((t) => !buildBlock(s, t, b.id)))) out.land = 'You can afford a building'
+    else if (frontier(s.map).some((t) => !claimBlock(s, t))) out.land = 'You can claim a border tile'
+    return out
+  }, [s])
+
   const RIGHT: [RightTab, string][] = [
-    ['tile', 'Tile'],
-    ['muster', 'Muster'],
-    ['troop', `Troop ${s.troop.length}`],
-    ['build', 'Build'],
+    ['land', 'Land'],
+    ['army', `Army ${s.troop.length}`],
     ['scout', 'Scout'],
   ]
 
@@ -199,16 +203,15 @@ export function TurnScreen() {
       <aside className="side">
         <nav className="side-tabs">
           {RIGHT.map(([id, label]) => (
-            <button key={id} data-help={`tab:${id}`} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>
+            <button key={id} data-help={`tab:${id}`} className={tab === id ? 'on' : ''} onClick={() => setTab(id)} title={unused[id]}>
               {label}
+              {unused[id] && <i className="tab-dot" aria-label={unused[id]} />}
             </button>
           ))}
         </nav>
         <div className="side-body">
-          {tab === 'tile' && <TilePanel hex={selected} onSelect={onSelect} />}
-          {tab === 'muster' && <MusterPanel />}
-          {tab === 'troop' && <TroopPanel />}
-          {tab === 'build' && <BuildPanel armed={armed} onArm={setArmed} />}
+          {tab === 'land' && (selected ? <TilePanel hex={selected} onSelect={onSelect} /> : <BuildPanel armed={armed} onArm={setArmed} />)}
+          {tab === 'army' && <ArmyPanel />}
           {tab === 'scout' && <ScoutPanel onFocusTile={(h) => onSelect(h)} />}
         </div>
       </aside>
@@ -588,121 +591,43 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
         </div>
       )}
       <button className="btn btn-small btn-ghost close" onClick={() => onSelect(null)}>
-        Deselect
+        ← All buildings
       </button>
     </div>
   )
 }
 
+const NOT_HERE: Partial<Record<NonNullable<BuildBlock>, (b: BuildingDef) => string>> = {
+  terrain: (b) => (b.allowed === 'any' ? 'not here' : `${b.allowed.map((t) => TERRAIN_DEFS[t].label).join(' or ')} only`),
+  unique: () => 'already built',
+}
+
+/** Every building: what fits this tile first (by what it would make here), then the rest and why not. */
 function BuildOptions({ hex }: { hex: Hex }) {
   const [s, dispatch] = useGame()
-  const options = BUILDINGS.map((b) => ({ b, block: buildBlock(s, hex, b.id) }))
-    .filter(({ block }) => block === null || block === 'cost')
-    .map(({ b, block }) => ({ b, block, out: evaluateBuilding(s.map, hex, b.id).output }))
-    .sort((x, y) => Number(!!x.block) - Number(!!y.block) || outputScore(y.out) - outputScore(x.out))
-    .slice(0, 6)
+  const check = useRequirementCheck()
+  const options = BUILDINGS.map((b) => ({ b, block: buildBlock(s, hex, b.id), out: evaluateBuilding(s.map, hex, b.id).output }))
+    .map((o) => ({ ...o, fits: o.block === null || o.block === 'cost' }))
+    .sort((x, y) => Number(y.fits) - Number(x.fits) || outputScore(y.out) - outputScore(x.out))
   return (
     <div className="build-options">
       <span className="label" data-help="adjacency">
-        Best builds here
+        Build here
       </span>
-      {options.map(({ b, block, out }) => (
-        <button key={b.id} className={`build-opt ${block ? 'poor' : ''}`} disabled={!!block} onClick={() => dispatch((st) => placeBuilding(st, hex, b.id))}>
+      {options.map(({ b, block, out, fits }) => (
+        <button
+          key={b.id}
+          className={`build-opt ${block === 'cost' ? 'poor' : ''}`}
+          disabled={!fits}
+          onClick={(e) => check(e.currentTarget, buildCost(s, b.id)) && dispatch((st) => placeBuilding(st, hex, b.id))}
+        >
           <span className="bo-name">
             <BuildingGlyph def={b} /> {b.name}
           </span>
-          <span className="bo-out">{outputParts(out).map((p) => p.text).join(' · ') || '—'}</span>
-          <CostChips cost={b.cost(1)} />
+          <span className="bo-out">{fits ? outputParts(out).map((p) => p.text).join(' · ') || '—' : NOT_HERE[block!]?.(b)}</span>
+          {fits && <CostChips cost={buildCost(s, b.id)} />}
         </button>
       ))}
-    </div>
-  )
-}
-
-// ── Right: muster ─────────────────────────────────────────────────────
-
-function MusterPanel() {
-  const [s, dispatch] = useGame()
-  const [open, setOpen] = useState<string | null>(null)
-  const current = open ? s.muster.find((m) => m.unit.uid === open) : undefined
-
-  if (current) {
-    return (
-      <UnitDetail
-        inline
-        unit={current.unit}
-        s={s}
-        inTroop={false}
-        onClose={() => setOpen(null)}
-        actions={
-          <button
-            className="btn btn-primary"
-            onClick={(e) => {
-              if (!canRecruit(s, current.unit.uid)) {
-                deny(e.currentTarget, s.morale < current.price ? `You are missing ${current.price - s.morale} morale.` : 'Your troop and bench are full.')
-                return
-              }
-              dispatch((st) => recruit(st, current.unit.uid))
-              setOpen(null)
-            }}
-          >
-            Enlist <b className="morale-cost">✦{current.price}</b>
-          </button>
-        }
-      />
-    )
-  }
-
-  const recruitNow = (e: React.MouseEvent<HTMLButtonElement>) => {
-    if (!canCallMuster(s)) return deny(e.currentTarget, `You are missing ${musterCost(s) - s.morale} morale.`)
-    dispatch(callMuster)
-  }
-  const first = s.musterCalls === 0
-
-  return (
-    <div>
-      <div className="muster-head">
-        <p className="lede" data-help="muster">
-          {first ? (
-            <>
-              Nobody is waiting. <b>Recruit</b> to call a muster for <b>morale</b>, then enlist who you want.
-            </>
-          ) : (
-            <>
-              This turn’s muster. Enlist with <b>morale</b>; recruiting again sends them home and calls new ones.
-            </>
-          )}
-        </p>
-        {!first && (
-          <button className="btn btn-small" data-help="recruit" onClick={recruitNow}>
-            ↻ Recruit again <b className="morale-cost">✦{musterCost(s)}</b>
-          </button>
-        )}
-      </div>
-      <div className="muster-morale" data-help="morale">
-        ✦ {s.morale} morale · fields ×{moraleMult(s.morale).toFixed(2)}
-      </div>
-      {first && (
-        <button className="btn btn-primary muster-call" data-help="recruit" onClick={recruitNow}>
-          Recruit <b className="morale-cost">✦{musterCost(s)}</b>
-        </button>
-      )}
-      {!first && s.muster.length === 0 && <p className="empty">Everyone answered. Recruit again to call more.</p>}
-      <div className="portrait-grid">
-        {s.muster.map((c) => (
-          <button key={c.unit.uid} className={`portrait-tile ${c.price > s.morale ? 'poor' : ''}`} onClick={() => setOpen(c.unit.uid)} title={c.unit.name}>
-            <Portrait unit={c.unit} size={84} />
-            <span className="pt-name">{c.unit.name.split(' ').slice(0, 2).join(' ')}</span>
-            <span className="pt-meta">
-              <span style={{ color: RARITY_COLOR[c.unit.rarity] }}>{c.unit.rarity}</span> {TYPE_DEFS[c.unit.type].label}
-            </span>
-            <AffinityBadge points={c.unit.affinities} />
-            <span className="pt-foot">
-              <b className="morale-cost">✦{c.price}</b>
-            </span>
-          </button>
-        ))}
-      </div>
     </div>
   )
 }

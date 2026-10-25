@@ -246,10 +246,16 @@ const STATIC: Record<string, Resolver> = {
     see: ['land', 'birth-odds'],
   }),
   demolish: () => ({ title: 'Demolish', body: `Tear a building down for ${pct(CONFIG.demolishRefund)} of everything you spent on it. Use it to pivot when your plans change.` }),
-  'tab:tile': () => ({ title: 'Tile', body: 'The tile you selected on the board: what it produces, what you can build there, and whether you can claim or raid it.', see: ['tile-output', 'claim', 'camp'] }),
-  'tab:muster': () => ({ title: 'Muster', body: 'Recruit to call this turn’s citizens, then enlist who you want. Both cost morale. Each turn starts empty.', see: ['muster', 'recruit'] }),
-  'tab:build': () => ({ title: 'Build', body: 'Every building, grouped. Open one for its stats, adjacency and model, then place it on the board.', see: ['adjacency', 'kind:research'] }),
-  'tab:troop': () => ({ title: 'Troop', body: 'Your fighters, your bench, and the synergies your troop’s affinities add up to.', see: ['troop', 'bench', 'synergies'] }),
+  'tab:land': () => ({
+    title: 'Land',
+    body: 'With no tile selected: every building, grouped; open one for its stats, adjacency and model, then place it on the board. Select a tile to see what it produces, build on it, or claim or raid it.',
+    see: ['tile-output', 'adjacency', 'claim', 'camp'],
+  }),
+  'tab:army': () => ({
+    title: 'Army',
+    body: 'Your troop’s make-up and synergies on top, this turn’s muster below them (each citizen shows what enlisting them adds), then your troop and bench. Drag faces to swap them.',
+    see: ['troop', 'synergies', 'muster', 'bench'],
+  }),
   'tab:scout': () => ({ title: 'Scout', body: 'This round’s opponent, known from turn 1 so you can plan against it.', see: ['scout'] }),
   muster: (s) => ({
     title: 'Muster',

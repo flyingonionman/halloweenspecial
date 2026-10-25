@@ -63,6 +63,7 @@ export function BuildPanel({ armed, onArm }: Props) {
 
   return (
     <div className="build-tab">
+      <p className="muted">Select a tile to see it and build there, or open a building to place it.</p>
       {SECTIONS.map((sec) => (
         <section key={sec.kind}>
           <h4 className="bp-tier" data-help={`kind:${sec.kind}`}>

@@ -1,6 +1,6 @@
 /**
- * The Troop tab: an overview on top (team comp + compact synergies), then
- * your troop and bench as portrait grids. A portrait opens the unit inline,
+ * The Army tab: an overview on top (team comp + compact synergies), this
+ * turn's muster, then your troop and bench as portrait grids. A portrait opens the unit inline,
  * where it can be levelled, benched/deployed or released.
  */
 import {
@@ -13,11 +13,21 @@ import {
   computeSynergies,
   moveToBench,
   moveToTroop,
+  callMuster,
+  canCallMuster,
+  canRecruit,
+  moraleMult,
+  musterCost,
+  recruit,
   releaseRefund,
   releaseUnit,
   swapUnits,
   synergyEffects,
+  tierFor,
+  troopAffinityPoints,
   troopSize,
+  type Affinity,
+  type AffinityPoints,
   type Effects,
   type Unit,
 } from '../../game'
@@ -26,16 +36,18 @@ import { useGame } from '../useGame'
 import { UnitDetail } from './UnitDetail'
 import { AffinityBadge } from './UnitCard'
 import { Portrait } from './Portrait'
+import { deny } from '../toast'
 import { AFFINITY_COLOR, AFFINITY_GLYPH, RARITY_COLOR, TYPE_GLYPH } from '../theme'
 
 export const effectsText = (fx: Effects) =>
   (Object.entries(fx) as [keyof typeof EFFECT_TEXT, number][]).map(([k, v]) => EFFECT_TEXT[k](v)).join(', ')
 
 
-export function TroopPanel() {
+export function ArmyPanel() {
   const [s, dispatch] = useGame()
   const [detail, setDetail] = useState<string | null>(null)
   const detailUnit = detail ? [...s.troop, ...s.bench].find((u) => u.uid === detail) : undefined
+  const citizen = detail ? s.muster.find((m) => m.unit.uid === detail) : undefined
   const size = troopSize(s)
   const c = city(s)
   const synergies = computeSynergies(s.troop, c.affinityLevels)
@@ -73,6 +85,33 @@ export function TroopPanel() {
       {...dropZone(u.uid)}
     />
   )
+
+  if (citizen) {
+    return (
+      <UnitDetail
+        inline
+        unit={citizen.unit}
+        s={s}
+        inTroop={false}
+        onClose={() => setDetail(null)}
+        actions={
+          <button
+            className="btn btn-primary"
+            onClick={(e) => {
+              if (!canRecruit(s, citizen.unit.uid)) {
+                deny(e.currentTarget, s.morale < citizen.price ? `You are missing ${citizen.price - s.morale} morale.` : 'Your troop and bench are full.')
+                return
+              }
+              dispatch((st) => recruit(st, citizen.unit.uid))
+              setDetail(null)
+            }}
+          >
+            Enlist <b className="morale-cost">✦{citizen.price}</b>
+          </button>
+        }
+      />
+    )
+  }
 
   if (detailUnit) {
     const inTroop = s.troop.includes(detailUnit)
@@ -131,7 +170,7 @@ export function TroopPanel() {
             ))}
           </div>
         ) : (
-          <p className="empty">No one is deployed. Recruit in the Muster tab and enlist citizens.</p>
+          <p className="empty">No one is deployed. Recruit below and enlist citizens.</p>
         )}
         {sorted.length > 0 ? (
           <ul className="syn-compact" data-help="synergies">
@@ -166,6 +205,8 @@ export function TroopPanel() {
           s.troop.length > 0 && <p className="empty">No synergies: plain citizens carry no affinity. Academies change that.</p>
         )}
       </div>
+
+      <Muster onOpen={setDetail} toBench={s.troop.length >= size} />
 
       <h3 className="section-title" data-help="troop">
         Deployed
@@ -206,5 +247,90 @@ function UnitTile({ unit, onOpen, className = '', ...drag }: { unit: Unit; onOpe
         {unit.battlesSurvived > 0 && <span className="pt-vet">{'★'.repeat(Math.min(3, unit.battlesSurvived))}</span>}
       </span>
     </button>
+  )
+}
+
+/** This turn's muster: recruit for morale, then open a citizen to enlist them. */
+function Muster({ onOpen, toBench }: { onOpen: (uid: string) => void; toBench: boolean }) {
+  const [s, dispatch] = useGame()
+  const totals = troopAffinityPoints(s.troop)
+  const recruitNow = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (!canCallMuster(s)) return deny(e.currentTarget, `You are missing ${musterCost(s) - s.morale} morale.`)
+    dispatch(callMuster)
+  }
+  const first = s.musterCalls === 0
+
+  return (
+    <>
+      <h3 className="section-title" data-help="muster">
+        Muster
+      </h3>
+      <div className="muster-head">
+        <p className="lede" data-help="muster">
+          {first ? (
+            <>
+              Nobody is waiting. <b>Recruit</b> to call a muster for <b>morale</b>, then enlist who you want.
+            </>
+          ) : (
+            <>
+              This turn’s muster. Enlist with <b>morale</b>; recruiting again sends them home and calls new ones.
+            </>
+          )}
+        </p>
+        {!first && (
+          <button className="btn btn-small" data-help="recruit" onClick={recruitNow}>
+            ↻ Recruit again <b className="morale-cost">✦{musterCost(s)}</b>
+          </button>
+        )}
+      </div>
+      <div className="muster-morale" data-help="morale">
+        ✦ {s.morale} morale · fields ×{moraleMult(s.morale).toFixed(2)}
+      </div>
+      {first && (
+        <button className="btn btn-primary muster-call" data-help="recruit" onClick={recruitNow}>
+          Recruit <b className="morale-cost">✦{musterCost(s)}</b>
+        </button>
+      )}
+      {!first && s.muster.length === 0 && <p className="empty">Everyone answered. Recruit again to call more.</p>}
+      <div className="portrait-grid">
+        {s.muster.map((c) => (
+          <button key={c.unit.uid} className={`portrait-tile ${c.price > s.morale ? 'poor' : ''}`} onClick={() => onOpen(c.unit.uid)} title={c.unit.name}>
+            <Portrait unit={c.unit} size={84} />
+            <span className="pt-name">{c.unit.name.split(' ').slice(0, 2).join(' ')}</span>
+            <span className="pt-meta">
+              <span style={{ color: RARITY_COLOR[c.unit.rarity] }}>{c.unit.rarity}</span> {TYPE_DEFS[c.unit.type].label}
+            </span>
+            <AffinityBadge points={c.unit.affinities} />
+            <SynergyDelta unit={c.unit} totals={totals} toBench={toBench} />
+            <span className="pt-foot">
+              <b className="morale-cost">✦{c.price}</b>
+            </span>
+          </button>
+        ))}
+      </div>
+    </>
+  )
+}
+
+/** What enlisting this citizen adds to the troop's affinity points; ▲ when it reaches a new synergy tier. */
+function SynergyDelta({ unit, totals, toBench }: { unit: Unit; totals: AffinityPoints; toBench: boolean }) {
+  const gains = Object.entries(unit.affinities) as [Affinity, number][]
+  if (gains.length === 0) return null
+  if (toBench) return <span className="pt-delta">to bench</span>
+  return (
+    <>
+      {gains.map(([a, n]) => {
+        const after = (totals[a] ?? 0) + n
+        const next = CONFIG.affinity.thresholds[tierFor(after)]
+        const up = tierFor(after) > tierFor(totals[a] ?? 0)
+        return (
+          <span key={a} className={`pt-delta ${up ? 'up' : ''}`} style={{ color: AFFINITY_COLOR[a] }} title={up ? 'Reaches a new synergy tier' : undefined}>
+            +{n} → {after}
+            {next !== undefined && <small>/{next}</small>}
+            {up && ' ▲'}
+          </span>
+        )
+      })}
+    </>
   )
 }
