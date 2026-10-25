@@ -4,7 +4,7 @@
  * the matching `can*` helpers let the UI disable buttons.
  *
  * Flow: pick a species → 5 rounds × (10 turns of city-building → 1 battle vs a ghost).
- * Each turn: build, claim, make offerings, trade, raid camps, and recruit: call a muster (morale), then enlist from it.
+ * Each turn: build, claim, grow academies, trade, raid camps, and recruit: call a muster (morale), then enlist from it.
  * Round battles are sudden elimination: lose one and the run is over.
  *
  * Morale is both currency (calling musters, enlisting citizens) and productivity
@@ -20,12 +20,12 @@ import { simulateCombat, type CombatResult } from './combat/sim'
 import { campLoot } from './deeds'
 import { SPECIES, speciesMods, type SpeciesId } from './species'
 import { createUnit, releaseRefund, upgradeCost, type Unit } from './units/unit'
-import { AFFINITIES, AFFINITY_DEFS, AFFINITY_LABEL, researchCost, type Affinity } from './affinities'
+import { AFFINITIES, AFFINITY_DEFS, AFFINITY_LABEL, academyFlow, affinitiesOfTier, childrenOf, researchCost, type Affinity } from './affinities'
 import { BUILDING_DEFS, buildingName, canPlaceOn, totalCost, type BuildingId } from './world/buildings'
 import { cityBonuses, evaluateCity, isUnlocked, type CityStats } from './world/city'
 import { troopEconomy } from './synergy'
 import { hexDistance, hexKey, type Hex } from './world/hex'
-import { frontier, generateMap, ownedTiles, tileAt, type WorldMap } from './world/map'
+import { frontier, generateMap, ownedTiles, tileAt, type PlacedBuilding, type TradeRoute, type WorldMap } from './world/map'
 import { RESOURCE_LABEL, TERRAIN_DEFS, emptyStock, type Cost, type Material, type Stock } from './world/terrain'
 
 export type Phase = 'species' | 'turn' | 'battle' | 'over'
@@ -343,41 +343,126 @@ export function upgradeBuilding(state: GameState, h: Hex): GameState {
   })
 }
 
-// ── Academies: offerings ──────────────────────────────────────────────
+// ── Academies: dedicate, raise, evolve ────────────────────────────────
+//
+// Growing an academy costs an upfront payment *and* a standing throughput
+// commitment: a fixed amount of essence per turn per level (`academyFlow`),
+// taken from every turn's income. The change takes effect next turn. An empty
+// academy is dedicated to a tier-1 affinity; higher tiers come from evolving a
+// dedicated academy into a child affinity once that child is unlocked.
 
-export type OfferBlock = 'no-academy' | 'dedicated' | 'locked' | 'max' | 'cost' | null
+/** One way to grow an academy. */
+export interface AcademyMove {
+  kind: 'dedicate' | 'raise' | 'evolve'
+  affinity: Affinity
+  level: number
+}
 
-/** The offering that dedicates an empty academy to `a`, or raises one already dedicated to it. */
-export function offeringCost(s: GameState, h: Hex, a: Affinity): Cost {
-  const level = tileAt(s.map, h)?.building?.level ?? 0
-  return researchCost(a, level + 1)
+export type AcademyBlock = 'no-academy' | 'pending' | 'locked' | 'cost' | 'flow' | null
+
+/** What an academy is committed to: its pending change if any, else what it teaches now (null if empty). */
+export function academyCommitment(b: PlacedBuilding): { affinity: Affinity; level: number } | null {
+  return b.pending ?? (b.affinity && b.level > 0 ? { affinity: b.affinity, level: b.level } : null)
+}
+
+const owned = (s: Pick<GameState, 'map'>) => s.map.tiles.filter((t) => t.owned)
+
+/** Essence per turn all your academies draw, together. */
+export function academyUpkeep(s: Pick<GameState, 'map'>): Cost {
+  const out: Cost = {}
+  for (const t of owned(s)) {
+    const c = t.building?.id === 'academy' ? academyCommitment(t.building) : null
+    if (c) for (const [k, v] of Object.entries(academyFlow(c.affinity, c.level)) as [keyof Stock, number][]) out[k] = (out[k] ?? 0) + v
+  }
+  return out
+}
+
+/** Income per turn after academy upkeep and trade routes (can go negative: the shortfall comes out of stock). */
+export function netYields(s: EconView): Record<keyof CityStats['yields'], number> {
+  const y = { ...effectiveYields(s) }
+  for (const [k, v] of Object.entries(academyUpkeep(s)) as [keyof typeof y, number][]) y[k] -= v
+  for (const [k, v] of Object.entries(routeFlows(s)) as [keyof typeof y, number][]) y[k] += v
+  return y
+}
+
+/** Every move this academy offers right now. */
+export function academyMoves(s: GameState, h: Hex): AcademyMove[] {
+  const b = tileAt(s.map, h)?.building
+  if (b?.id !== 'academy') return []
+  const cur = academyCommitment(b)
+  if (!cur) return affinitiesOfTier(1).map((a) => ({ kind: 'dedicate', affinity: a, level: 1 }))
+  const out: AcademyMove[] = []
+  if (cur.level < CONFIG.affinity.maxLevel) out.push({ kind: 'raise', affinity: cur.affinity, level: cur.level + 1 })
+  if (cur.level >= CONFIG.affinity.unlockLevel) for (const c of childrenOf(cur.affinity)) out.push({ kind: 'evolve', affinity: c, level: 1 })
+  return out
+}
+
+/** A move's upfront payment, the academy's new total throughput per turn, and the extra on top of today's. */
+export function academyMoveCost(s: GameState, h: Hex, m: AcademyMove): { upfront: Cost; flow: Cost; extra: Cost } {
+  const b = tileAt(s.map, h)?.building
+  const cur = b ? academyCommitment(b) : null
+  const flow = academyFlow(m.affinity, m.level)
+  const was = cur ? academyFlow(cur.affinity, cur.level) : {}
+  const extra: Cost = {}
+  for (const [k, v] of Object.entries(flow) as [keyof Stock, number][]) if (v > (was[k] ?? 0)) extra[k] = v - (was[k] ?? 0)
+  return { upfront: researchCost(m.affinity, m.level), flow, extra }
 }
 
 /**
- * Why `a` can't be offered at this academy. An empty academy takes any unlocked
- * affinity; a dedicated one only its own. Higher tiers unlock once every parent
- * has an academy at the unlock level.
+ * Why a move can't be made. One change per academy per turn ('pending'); a child
+ * needs every parent at the unlock level ('locked'); you must afford the upfront
+ * cost ('cost') and have enough uncommitted income for the extra throughput ('flow').
  */
-export function offerBlock(s: GameState, h: Hex, a: Affinity): OfferBlock {
-  const b = tileAt(s.map, h)?.building
-  if (!b || b.id !== 'academy' || !tileAt(s.map, h)!.owned) return 'no-academy'
-  if (b.affinity && b.affinity !== a) return 'dedicated'
-  if (!isUnlocked(a, city(s).affinityLevels)) return 'locked'
-  if (b.level >= CONFIG.affinity.maxLevel) return 'max'
-  if (!canAfford(s, offeringCost(s, h, a))) return 'cost'
+export function academyBlock(s: GameState, h: Hex, m: AcademyMove): AcademyBlock {
+  const t = tileAt(s.map, h)
+  if (t?.building?.id !== 'academy' || !t.owned) return 'no-academy'
+  if (t.building.pending) return 'pending'
+  if (m.kind === 'evolve' && !isUnlocked(m.affinity, city(s).affinityLevels)) return 'locked'
+  const { upfront, extra } = academyMoveCost(s, h, m)
+  if (!canAfford(s, upfront)) return 'cost'
+  const net = netYields(s)
+  if ((Object.entries(extra) as [keyof typeof net, number][]).some(([k, v]) => net[k] < v)) return 'flow'
   return null
 }
 
-/** Offer essences at an academy: dedicates it to `a` (level 1), or raises it a level. */
-export function offerToAcademy(state: GameState, h: Hex, a: Affinity): GameState {
-  if (state.phase !== 'turn' || offerBlock(state, h, a)) return state
+/** Throughput you still need for a move (empty when your free income covers it). */
+export function flowShortfall(s: GameState, h: Hex, m: AcademyMove): Cost {
+  const net = netYields(s)
+  const out: Cost = {}
+  for (const [k, v] of Object.entries(academyMoveCost(s, h, m).extra) as [keyof Stock, number][]) if (net[k] < v) out[k] = v - Math.max(0, net[k])
+  return out
+}
+
+/** Pay upfront and commit the throughput; the academy changes at the start of next turn. */
+export function commitAcademy(state: GameState, h: Hex, m: AcademyMove): GameState {
+  if (state.phase !== 'turn' || academyBlock(state, h, m)) return state
   return produce(state, (s) => {
-    pay(s, offeringCost(s, h, a))
+    pay(s, academyMoveCost(s, h, m).upfront)
     const b = tileAt(s.map, h)!.building!
-    b.affinity = a
-    b.level++
-    log(s, b.level === 1 ? `An academy was dedicated to ${AFFINITY_LABEL[a]}.` : `A ${AFFINITY_LABEL[a]} academy reached level ${b.level}.`)
+    b.pending = { affinity: m.affinity, level: m.level }
+    const name = AFFINITY_LABEL[m.affinity]
+    log(s, m.kind === 'dedicate' ? `An academy was dedicated to ${name}; it opens next turn.` : m.kind === 'evolve' ? `An academy is evolving into ${name}.` : `A ${name} academy is rising to level ${m.level}.`)
   })
+}
+
+/** End of turn: every academy draws its throughput from stock (starving if it can't), then pending changes land. */
+function runAcademies(s: GameState) {
+  for (const t of owned(s)) {
+    const b = t.building
+    if (b?.id !== 'academy') continue
+    const c = academyCommitment(b)
+    if (!c) continue
+    const upkeep = academyFlow(c.affinity, c.level)
+    const starved = !canAfford(s, upkeep)
+    if (!starved) pay(s, upkeep)
+    if (starved && !b.starved) log(s, `The ${AFFINITY_LABEL[c.affinity]} academy is starved of essence and teaches nothing until its upkeep is paid.`)
+    b.starved = starved
+    if (b.pending) {
+      b.affinity = b.pending.affinity
+      b.level = b.pending.level
+      delete b.pending
+    }
+  }
 }
 
 // ── Faith (the Church) ────────────────────────────────────────────────
@@ -420,24 +505,72 @@ export function demolish(state: GameState, h: Hex): GameState {
 
 // ── Trade ─────────────────────────────────────────────────────────────
 
-/** Your Trading Post's rate, or 1:1 at a reachable caravan (`at`). */
-export function tradeRate(s: GameState, at?: Hex): number | null {
-  if (at) return tileAt(s.map, at)?.site === 'caravan' && siteReachable(s, at) ? 1 : null
-  return city(s).tradeRate
+//
+// The Trading Post works like an academy: you commit throughput. A route gives
+// `amount` × the trade rate of one material from every turn's income and brings
+// in `amount` of another. It's committed at once, delivers from next turn, and
+// is skipped (starved) on a turn it can't be paid. Cancelling frees the income.
+
+const tradingPost = (s: Pick<GameState, 'map'>) => owned(s).find((t) => t.building?.id === 'trading-post') ?? null
+
+export const tradeRoutes = (s: Pick<GameState, 'map'>): TradeRoute[] => tradingPost(s)?.building?.routes ?? []
+
+/** What a route costs per turn at today's rate. */
+export const routeCost = (s: Pick<GameState, 'map'>, r: Pick<TradeRoute, 'amount'>) => r.amount * (city(s).tradeRate ?? CONFIG.trade.worst)
+
+/** Per-turn income changes from all routes: committed gives (all) and deliveries (active ones). */
+export function routeFlows(s: Pick<GameState, 'map'>): Cost {
+  const out: Cost = {}
+  for (const r of tradeRoutes(s)) {
+    out[r.give] = (out[r.give] ?? 0) - routeCost(s, r)
+    if (!r.pending) out[r.get] = (out[r.get] ?? 0) + r.amount
+  }
+  return out
 }
 
-export function canTrade(s: GameState, give: Material, get: Material, at?: Hex): boolean {
-  const rate = tradeRate(s, at)
-  return s.phase === 'turn' && rate !== null && give !== get && s.stock[give] >= rate
+export type RouteBlock = 'no-post' | 'same' | 'max' | 'amount' | 'flow' | null
+
+export function routeBlock(s: GameState, give: Material, get: Material, amount: number): RouteBlock {
+  if (!tradingPost(s)) return 'no-post'
+  if (give === get) return 'same'
+  if (tradeRoutes(s).length >= CONFIG.trade.maxRoutes) return 'max'
+  if (amount < 1 || !Number.isInteger(amount)) return 'amount'
+  if (netYields(s)[give] < routeCost(s, { amount })) return 'flow'
+  return null
 }
 
-export function trade(state: GameState, give: Material, get: Material, at?: Hex): GameState {
-  if (!canTrade(state, give, get, at)) return state
+export function openRoute(state: GameState, give: Material, get: Material, amount: number): GameState {
+  if (state.phase !== 'turn' || routeBlock(state, give, get, amount)) return state
   return produce(state, (s) => {
-    s.stock[give] -= tradeRate(state, at)!
-    s.stock[get] += 1
-    if (at) tileAt(s.map, at)!.siteLeaving = true
+    const b = tradingPost(s)!.building!
+    ;(b.routes ??= []).push({ give, get, amount, pending: true })
+    log(s, `Opened a trade route: ${routeCost(s, { amount })} ${RESOURCE_LABEL[give]} → ${amount} ${RESOURCE_LABEL[get]} a turn, from next turn.`)
   })
+}
+
+export function closeRoute(state: GameState, index: number): GameState {
+  if (state.phase !== 'turn' || !tradeRoutes(state)[index]) return state
+  return produce(state, (s) => {
+    const b = tradingPost(s)!.building!
+    const [r] = b.routes!.splice(index, 1)
+    log(s, `Closed the ${RESOURCE_LABEL[r!.give]} → ${RESOURCE_LABEL[r!.get]} route.`)
+  })
+}
+
+/** End of turn: active routes pay and deliver (skipped if unpayable); new ones become active. */
+function runTrades(s: GameState) {
+  const post = tradingPost(s)
+  for (const r of post?.building?.routes ?? []) {
+    if (r.pending) {
+      r.pending = false
+      continue
+    }
+    const cost = routeCost(s, r)
+    r.starved = s.stock[r.give] < cost
+    if (r.starved) continue
+    s.stock[r.give] -= cost
+    s.stock[r.get] += r.amount
+  }
 }
 
 // ── Muster, troop & bench ─────────────────────────────────────────────
@@ -604,6 +737,20 @@ export function raidCamp(state: GameState, h: Hex): GameState {
 
 // ── Sites ─────────────────────────────────────────────────────────────
 
+/** A caravan in reach swaps anything 1:1; it moves on at the end of the turn you trade. */
+export function canCaravanTrade(s: GameState, at: Hex, give: Material, get: Material): boolean {
+  return s.phase === 'turn' && tileAt(s.map, at)?.site === 'caravan' && siteReachable(s, at) && give !== get && s.stock[give] >= 1
+}
+
+export function caravanTrade(state: GameState, at: Hex, give: Material, get: Material): GameState {
+  if (!canCaravanTrade(state, at, give, get)) return state
+  return produce(state, (s) => {
+    s.stock[give] -= 1
+    s.stock[get] += 1
+    tileAt(s.map, at)!.siteLeaving = true
+  })
+}
+
 const hasRoom = (s: GameState) => s.troop.length < troopSize(s) || s.bench.length < CONFIG.benchSize
 const enlistFree = (s: GameState, u: Unit) => {
   if (s.troop.length < troopSize(s)) s.troop.push(u)
@@ -737,6 +884,8 @@ export function endTurn(state: GameState): GameState {
     const c = city(s)
     const before = { stock: { ...s.stock }, population: s.population, morale: s.morale, cap: territoryCap(s) }
     for (const [k, v] of Object.entries(effectiveYields(s))) if (k !== 'food') s.stock[k as keyof Stock] += v
+    runTrades(s)
+    runAcademies(s)
     if (speciesMods(s.species).interest) {
       const { per, max } = CONFIG.economy.interest
       s.stock.gold += Math.min(max, Math.floor(s.stock.gold / per))
@@ -754,7 +903,8 @@ export function endTurn(state: GameState): GameState {
     s.muster = []
 
     if (!isLastTurn(s)) {
-      const levels = c.affinityLevels
+      cityCache.delete(s.map) // academies just changed level
+      const levels = city(s).affinityLevels
       const start = s.levelsAtTurnStart ?? levels
       const gained: Cost = {}
       for (const k of Object.keys(s.stock) as (keyof Stock)[]) if (s.stock[k] !== before.stock[k]) gained[k] = s.stock[k] - before.stock[k]

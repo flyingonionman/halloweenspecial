@@ -39,8 +39,16 @@ import {
   musterSize,
   birthContext,
   isUnlocked,
-  offerBlock,
-  offerToAcademy,
+  academyBlock,
+  academyFlow,
+  academyMoves,
+  commitAcademy,
+  netYields,
+  AFFINITY_DEFS,
+  routeBlock,
+  openRoute,
+  closeRoute,
+  tradeRoutes,
   claimEarthCost,
   canOffer,
   offerLight,
@@ -48,6 +56,13 @@ import {
   TERRAIN_DEFS,
   troopEconomy,
   simulateCombat,
+  arena,
+  cellDistance,
+  F,
+  FRAME_STRIDE,
+  formatSpec,
+  lineupUnits,
+  parseLineup,
   tileAt,
   troopSize,
   unitStats,
@@ -184,36 +199,102 @@ describe('buildings & adjacency', () => {
     expect(evaluateBuilding(m, { q: 0, r: 0 }, 'barracks').output.atkPct!).toBeGreaterThan(before)
   })
 
-  it('academies: built empty, dedicated and raised by offerings; every academy after the first costs arcane', () => {
-    let s = started(4)
-    s = { ...s, stock: { ...s.stock, gold: 999, stone: 99, fire: 99, earth: 99, arcane: 0 } }
+  /** Raw income this turn (before routes and academies), for checking deliveries. */
+  const effectiveYieldsOf = (s: GameState) => effectiveYields(s)
+
+  /** A started game whose land is fire and earth country (all within 2 of the capital owned), well stocked. */
+  const academyGame = () => {
+    const s = started(4)
+    const map = structuredClone(s.map)
+    let i = 0
+    for (const t of map.tiles) {
+      if (hexDistance(t, { q: 0, r: 0 }) > 2) continue
+      t.owned = true
+      t.camp = null
+      if (!t.building) t.terrain = i++ % 2 ? 'steppe' : 'volcanic'
+    }
+    return { ...s, map, stock: { ...s.stock, gold: 999, stone: 99, fire: 99, earth: 99, arcane: 99 } }
+  }
+
+  it('academies: built empty; every academy after the first costs arcane', () => {
+    let s = { ...started(4) }
+    s = { ...s, stock: { ...s.stock, gold: 999, stone: 99, arcane: 0 } }
     const [a, b] = ownedTiles(s.map).filter((t) => !t.building)
     expect(buildCost(s, 'academy').arcane).toBeUndefined()
     s = placeBuilding(s, a!, 'academy')
     expect(tileAt(s.map, a!)!.building).toEqual({ id: 'academy', level: 0 })
     expect(city(s).academies).toEqual([])
-    // the second academy needs arcane
     expect(buildCost(s, 'academy').arcane).toBe(CONFIG.affinity.extraAcademyArcane)
     expect(buildBlock(s, b!, 'academy')).toBe('cost')
-    s = { ...s, stock: { ...s.stock, arcane: 99 } }
-    s = placeBuilding(s, b!, 'academy')
-    expect(city(s).academyCount).toBe(2)
+  })
 
-    expect(offerBlock(s, a!, 'magma')).toBe('locked')
-    s = offerToAcademy(s, a!, 'fire')
-    expect(tileAt(s.map, a!)!.building).toMatchObject({ affinity: 'fire', level: 1 })
-    expect(offerBlock(s, a!, 'earth')).toBe('dedicated')
-    s = offerToAcademy(s, a!, 'fire')
-    s = offerToAcademy(offerToAcademy(s, b!, 'earth'), b!, 'earth')
+  it('academies grow by an upfront cost plus committed throughput, active from next turn', () => {
+    let s = academyGame()
+    const [a, b] = ownedTiles(s.map).filter((t) => !t.building)
+    s = placeBuilding(placeBuilding(s, a!, 'academy'), b!, 'academy')
+    // Empty academies offer tier-1 dedications only.
+    expect(academyMoves(s, a!).every((m) => m.kind === 'dedicate' && AFFINITY_DEFS[m.affinity].tier === 1)).toBe(true)
+
+    const fireBefore = netYields(s).fire
+    const goldBefore = s.stock.gold
+    s = commitAcademy(s, a!, { kind: 'dedicate', affinity: 'fire', level: 1 })
+    expect(s.stock.gold).toBeLessThan(goldBefore) // upfront
+    expect(netYields(s).fire).toBe(fireBefore - academyFlow('fire', 1).fire!) // throughput committed at once
+    expect(city(s).affinityLevels.fire).toBe(0) // …but it only teaches from next turn
+    expect(academyBlock(s, a!, { kind: 'raise', affinity: 'fire', level: 2 })).toBe('pending') // one change a turn
+    s = endTurn(s)
+    expect(city(s).affinityLevels.fire).toBe(1)
+
+    // Raise fire and earth to Lv2 (a turn each), then the fire academy can evolve into Magma.
+    s = commitAcademy(s, a!, { kind: 'raise', affinity: 'fire', level: 2 })
+    s = commitAcademy(s, b!, { kind: 'dedicate', affinity: 'earth', level: 1 })
+    s = endTurn(s)
+    s = commitAcademy(s, b!, { kind: 'raise', affinity: 'earth', level: 2 })
+    expect(academyBlock(s, a!, { kind: 'evolve', affinity: 'magma', level: 1 })).toBe('locked')
+    s = endTurn(s)
     expect(city(s).affinityLevels).toMatchObject({ fire: 2, earth: 2 })
-    expect(s.stock.fire).toBeLessThan(99)
-    const report = endTurn(s).report!
-    expect(report.levelsUp).toEqual(expect.arrayContaining([['fire', 2], ['earth', 2]]))
-    expect(report.unlocked).toContain('magma')
-    // both parents at Lv2 open Magma for a third academy
-    const c = ownedTiles(s.map).find((t) => !t.building)!
-    s = placeBuilding(s, c, 'academy')
-    expect(offerBlock(s, c, 'magma')).toBeNull()
+    expect(s.report!.levelsUp).toEqual(expect.arrayContaining([['earth', 2]]))
+    expect(s.report!.unlocked).toContain('magma')
+    const evolve = academyMoves(s, a!).find((m) => m.kind === 'evolve' && m.affinity === 'magma')!
+    expect(academyBlock(s, a!, evolve)).toBeNull()
+    s = endTurn(commitAcademy(s, a!, evolve))
+    expect(tileAt(s.map, a!)!.building).toMatchObject({ affinity: 'magma', level: 1 })
+  })
+
+  it('trade routes commit income now and deliver from next turn', () => {
+    let s = academyGame()
+    const spot = ownedTiles(s.map).find((t) => !t.building)!
+    expect(routeBlock(s, 'earth', 'stone', 1)).toBe('no-post')
+    s = placeBuilding(s, spot, 'trading-post')
+    const rate = city(s).tradeRate!
+    const mud = netYields(s).earth
+    expect(routeBlock(s, 'earth', 'stone', 999)).toBe('flow')
+    s = openRoute(s, 'earth', 'stone', 1)
+    expect(netYields(s).earth).toBe(mud - rate) // set aside at once
+    // The turn it opens: nothing moves yet.
+    const stone0 = s.stock.stone
+    s = endTurn(s)
+    expect(s.stock.stone).toBe(stone0 + effectiveYieldsOf(s).stone)
+    // From then on: pays rate mud, delivers 1 stone each turn.
+    const stone1 = s.stock.stone
+    s = endTurn(s)
+    expect(s.stock.stone).toBe(stone1 + effectiveYieldsOf(s).stone + 1)
+    s = closeRoute(s, 0)
+    expect(tradeRoutes(s)).toEqual([])
+  })
+
+  it('an academy whose upkeep cannot be paid starves and teaches nothing', () => {
+    let s = academyGame()
+    const a = ownedTiles(s.map).find((t) => !t.building)!
+    s = commitAcademy(placeBuilding(s, a, 'academy'), a, { kind: 'dedicate', affinity: 'fire', level: 1 })
+    s = endTurn(s)
+    expect(city(s).affinityLevels.fire).toBe(1)
+    // Lose every fire field and the stockpile: next turn's upkeep can't be paid.
+    const map = structuredClone(s.map)
+    for (const t of map.tiles) if (t.terrain === 'volcanic' && !t.building) t.terrain = 'steppe'
+    s = endTurn({ ...s, map, stock: { ...s.stock, fire: 0 } })
+    expect(tileAt(s.map, a)!.building!.starved).toBe(true)
+    expect(city(s).affinityLevels.fire).toBe(0)
   })
 
   it('placement respects terrain, ownership, uniqueness and cost', () => {
@@ -340,6 +421,52 @@ describe('combat', () => {
     expect(simulateCombat({ units: troopA }, { units: troopB }, 9).events).toEqual(simulateCombat({ units: troopA }, { units: troopB }, 9).events)
     const strong = troopA.map((u) => ({ ...u, rarity: 'epic' as const, level: 3 }))
     expect(simulateCombat({ units: strong }, { units: troopB }, 1).winner).toBe(0)
+  })
+
+  const fight = (a: string, b: string, seed = 1) => simulateCombat({ units: lineupUnits(parseLineup(a), 'a') }, { units: lineupUnits(parseLineup(b), 'b') }, seed)
+
+  it('is tick based: one cell per step, one unit per cell, attacks spaced by their tick cost', () => {
+    const r = fight('tank,fighter,ranger,mage,healer', 'tank,fighter,fighter,ranger,healer')
+    const A = arena(r.arenaRadius)
+    for (const e of r.events) if (e.kind === 'move') expect(cellDistance(A, e.from, e.to)).toBe(1)
+    for (const f of r.frames) {
+      const cells = r.roster.filter((u) => f[u.id * FRAME_STRIDE + F.hp]! > 0).map((u) => f[u.id * FRAME_STRIDE + F.cell]!)
+      expect(new Set(cells).size).toBe(cells.length)
+    }
+    // A unit's consecutive attacks are at least its attack ticks apart (bar double strikes, which this troop lacks).
+    for (const u of r.roster) {
+      const starts = r.events.filter((e) => e.kind === 'attack' && e.id === u.id).map((e) => e.t)
+      for (let i = 1; i < starts.length; i++) expect(starts[i]! - starts[i - 1]!).toBeGreaterThanOrEqual(u.attackTicks)
+    }
+  })
+
+  it('tanks grab aggro: damage dealers target an enemy tank first', () => {
+    const r = fight('fighter,ranger,mage', 'tank,fighter,ranger')
+    const tank = r.roster.find((u) => u.team === 1 && u.type === 'tank')!
+    for (const u of r.roster.filter((x) => x.team === 0)) {
+      const first = r.events.find((e) => e.kind === 'target' && e.id === u.id)
+      expect(first?.kind === 'target' && first.to).toBe(tank.id)
+    }
+  })
+
+  it('healers heal hurt allies and hex when nobody is hurt', () => {
+    const r = fight('tank,healer', 'fighter,fighter')
+    const healer = r.roster.find((u) => u.type === 'healer')!
+    expect(r.events.some((e) => e.kind === 'heal' && e.from === healer.id && e.to !== healer.id)).toBe(true)
+    expect(r.events.some((e) => e.kind === 'attack' && e.id === healer.id && e.hex)).toBe(true)
+  })
+
+  it('mirror matches are fair over many seeds', () => {
+    let a = 0
+    for (let seed = 1; seed <= 60; seed++) if (fight('tank,fighter,ranger,mage,healer', 'tank,fighter,ranger,mage,healer', seed).winner === 0) a++
+    expect(a).toBeGreaterThan(15)
+    expect(a).toBeLessThan(45)
+  })
+
+  it('lineup specs round-trip', () => {
+    const specs = parseLineup('tank:rare:3, fighter@fire2, healer')
+    expect(specs.map(formatSpec).join(',')).toBe('tank:rare:3,fighter@fire2,healer')
+    expect(() => parseLineup('wizard')).toThrow()
   })
 })
 

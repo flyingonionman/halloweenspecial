@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CONFIG, SITE_DEFS, callMuster, chooseSpecies, recruit, endTurn, exploreSite, finishBattle, frontier, newGame, siteBlock, trade, type GameState, type SiteId } from './index'
+import { CONFIG, SITE_DEFS, callMuster, chooseSpecies, recruit, endTurn, exploreSite, finishBattle, frontier, newGame, siteBlock, caravanTrade, type GameState, type SiteId } from './index'
 
 const started = (seed: number) => chooseSpecies(newGame(seed), 'human')
 
@@ -56,7 +56,7 @@ describe('sites', () => {
 
   it('a caravan trades 1:1, then moves on at the end of the turn', () => {
     const [s, h] = withSite('caravan')
-    const traded = trade(s, 'stone', 'fire', h)
+    const traded = caravanTrade(s, h, 'stone', 'fire')
     expect(traded.stock.stone).toBe(s.stock.stone - 1)
     expect(traded.stock.fire).toBe(s.stock.fire + 1)
     expect(endTurn(traded).map.tiles.find((t) => t.q === h.q && t.r === h.r)!.site).toBeUndefined()

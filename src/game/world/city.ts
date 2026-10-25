@@ -117,7 +117,8 @@ export function evaluateCity(map: WorldMap): CityStats {
     const b = t.building
     if (b?.id === 'academy') {
       academyCount++
-      if (b.affinity && b.level > 0) {
+      // Starved academies (upkeep unpaid) teach nothing; pending changes count from next turn.
+      if (b.affinity && b.level > 0 && !b.starved) {
         academies.push({ affinity: b.affinity, level: b.level })
         affinityLevels[b.affinity] = Math.max(affinityLevels[b.affinity], b.level)
       }

@@ -1,0 +1,277 @@
+/* ── Combat debugger ──────────────────────────────────────────────────── */
+
+.dbg {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  overflow: hidden;
+}
+
+.dbg-watch {
+  grid-template-rows: 1fr;
+}
+
+.dbg-head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.dbg-head h1 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 28px;
+}
+
+.dbg-head p {
+  margin: 2px 0 0;
+  color: var(--bone-dim);
+  font-size: 13px;
+}
+
+.dbg-body {
+  display: grid;
+  grid-template-columns: 1fr 280px 1fr;
+  gap: 18px;
+  padding: 18px 24px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.dbg-team {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dbg-team h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 22px;
+}
+
+.dbg-tools {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--bone-dim);
+}
+
+.dbg select,
+.dbg input {
+  background: var(--ink-2);
+  color: var(--bone);
+  border: 1px solid var(--line);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+.dbg select:disabled {
+  opacity: 0.35;
+}
+
+.dbg-tools label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dbg-units {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dbg-units li {
+  display: grid;
+  grid-template-columns: 22px 88px 96px 58px 1fr 50px 28px;
+  gap: 4px;
+  align-items: center;
+  padding: 4px;
+  background: var(--ink-2);
+  border-left: 3px solid var(--line);
+}
+
+.team-0 .dbg-units li {
+  border-left-color: #e8c872;
+}
+
+.team-1 .dbg-units li {
+  border-left-color: #e0503f;
+}
+
+.dbg-glyph {
+  font-size: 16px;
+  text-align: center;
+}
+
+.dbg-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dbg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--bone-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.dbg-field input {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.dbg-spec input {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.dbg-err {
+  color: #ff8a7a;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.dbg-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--bone-faint);
+}
+
+.dbg-mid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  background: var(--ink-2);
+  align-self: start;
+}
+
+.dbg-seedrow {
+  display: flex;
+  gap: 4px;
+}
+
+.dbg-seedrow input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+}
+
+.dbg-fight {
+  font-size: 20px;
+  padding: 10px;
+}
+
+.dbg-batch {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 12px;
+}
+
+.dbg-batch-out {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.dbg-rates {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+}
+
+.dbg-bar {
+  display: flex;
+  height: 6px;
+  background: var(--ink);
+}
+
+.dbg-bar i {
+  display: block;
+  height: 100%;
+}
+
+.dbg-batch-out small {
+  color: var(--bone-faint);
+}
+
+.dbg-batch-out table {
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.dbg-batch-out th {
+  font-weight: 400;
+  color: var(--bone-faint);
+  text-align: right;
+  padding: 2px 3px;
+}
+
+.dbg-batch-out th:first-child,
+.dbg-batch-out td:first-child {
+  text-align: left;
+}
+
+.dbg-batch-out td {
+  font-family: var(--mono);
+  text-align: right;
+  padding: 2px 3px;
+  white-space: nowrap;
+}
+
+.dbg-seed {
+  font-size: 11px;
+  color: var(--bone-dim);
+  margin-right: 4px;
+}
+
+.dbg-verdict {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 22px;
+  background: rgba(14, 11, 10, 0.88);
+  border: 1px solid var(--line);
+  pointer-events: none;
+}
+
+.dbg-verdict b {
+  font-family: var(--display);
+  font-size: 26px;
+  font-weight: 400;
+}
+
+.dbg-verdict small {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--bone-dim);
+}
+
+@media (max-width: 1200px) {
+  .dbg-body {
+    grid-template-columns: 1fr;
+  }
+}

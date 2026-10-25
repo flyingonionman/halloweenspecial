@@ -7,7 +7,7 @@
  *   gather   — the Mine line (Mine → Quarry → Excavator): digs whatever its tile holds
  *   civic    — food, gold, trade
  *   faith    — Church (light) and Crypt (dark)
- *   research — Academies: dedicated to an affinity by offering essences; the only source of affinities at birth
+ *   research — Academies: dedicated to an affinity, fed essence every turn; the only source of affinities at birth
  *   military — permanent combat bonuses for every unit (the tempo line)
  */
 import type { ElementId } from './terrain'
@@ -121,7 +121,7 @@ export const BUILDING_DEFS: Record<BuildingId, BuildingDef> = {
     id: 'trading-post',
     name: 'Trading Post',
     kind: 'civic',
-    text: 'Open it to trade resources. Better rates beside a lake or market.',
+    text: 'Open it to set up trade routes: part of every turn’s income of one material, turned into another. Better rates beside a lake or market.',
     allowed: 'any',
     unique: true,
     maxLevel: 1,
@@ -175,10 +175,10 @@ export const BUILDING_DEFS: Record<BuildingId, BuildingDef> = {
     id: 'academy',
     name: 'Academy',
     kind: 'research',
-    text: 'Built empty. Open it and offer an affinity’s essences to dedicate it (hydrocorals make a Water Academy); offer more to raise its level. Each academy makes citizens likelier to be born with its affinity, and its level is the most points they can carry. Build as many as you like: every one after the first also costs arcane.',
+    text: 'Built empty. Open it to dedicate it to an element (hydrocorals make a Water Academy), raise its level, or evolve it into a higher tier. Each step costs an upfront payment plus a share of your income every turn from then on. Each academy makes citizens likelier to be born with its affinity, and its level is the most points they can carry. Build as many as you like: every one after the first also costs arcane.',
     allowed: 'any',
     maxLevel: 4,
-    // Only the empty building has a fixed price; offerings depend on the affinity (researchCost).
+    // Only the empty building has a fixed price; growing it depends on the affinity (researchCost + academyFlow).
     cost: (level) => (level === 1 ? { gold: 8, stone: 4 } : {}),
     base: {},
     adjacency: [],

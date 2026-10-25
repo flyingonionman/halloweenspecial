@@ -4,6 +4,8 @@
  */
 import { useEffect, useState } from 'react'
 import {
+  attackTicks,
+  moveTicks,
   AFFINITIES,
   AFFINITY_DEFS,
   AFFINITY_LABEL,
@@ -23,6 +25,7 @@ import {
   buildingName,
   landOf,
   researchCost,
+  academyFlow,
   BIOMES,
   BIOME_SPECIALS,
   affinitiesOfTier,
@@ -242,7 +245,7 @@ function Affinities() {
                       : landOf(a).length
                         ? `essence from ${landOf(a).map((x) => TERRAIN_DEFS[x].label).join(', ')} · `
                         : a === 'light' ? 'essence from a Church · ' : 'essence from a Crypt · '}
-                    dedicate for <Cost cost={researchCost(a, 1)} />
+                    {d.tier === 1 ? 'dedicate for' : 'evolve for'} <Cost cost={researchCost(a, 1)} /> + {Object.entries(academyFlow(a, 1)).map(([k, v]) => `${v}${RESOURCE_GLYPH[k as keyof typeof RESOURCE_GLYPH]}`).join(' ')}/turn
                   </p>
                   {d.economy && (
                     <div className="lex-tiers">
@@ -335,6 +338,14 @@ function Units() {
     <div>
       <p className="lede">A unit’s type is how it fights. Its affinities only feed synergies. Its rarity comes from your population when it was born.</p>
 
+      <h3 className="section-title">How a fight runs</h3>
+      <p className="muted">
+        Battles are fought on a hex arena, {CONFIG.combat.arenaRadius * 2 + 1} cells across, one unit per cell, in ticks ({CONFIG.combat.ticksPerSecond} a second). Every action
+        takes whole ticks: a step to the next cell, an attack (it lands part way through the swing), a skill. <b>Tanks grab aggro</b>: fighters, rangers and mages go for
+        any enemy tank they can reach before anyone else. Healers mostly heal and hex the strongest enemy when nobody is hurt. After{' '}
+        {CONFIG.combat.overtimeAfter / CONFIG.combat.ticksPerSecond}s, overtime ramps damage up and healing down.
+      </p>
+
       <h3 className="section-title">Skills</h3>
       <p className="muted">
         Every unit has one skill, set by its type: all Fighters Cleave, all Tanks Taunt, and so on. Skills fill from <b>energy</b>: +{CONFIG.combat.energyPerAttack} each time
@@ -383,11 +394,11 @@ function Units() {
             <th>HP</th>
             <th>ATK</th>
             <th>DEF</th>
-            <th>Range</th>
-            <th>Atk/s</th>
-            <th>Move</th>
+            <th title="Cells">Reach</th>
+            <th title="Ticks one attack takes">Attack</th>
+            <th title="Ticks one step takes">Step</th>
             <th>Damage</th>
-            <th>Ability</th>
+            <th>Goes for</th>
           </tr>
         </thead>
         <tbody>
@@ -402,12 +413,10 @@ function Units() {
                 <td>{d.base.atk}</td>
                 <td>{d.base.def}</td>
                 <td>{d.base.range}</td>
-                <td>{d.base.atkSpeed}</td>
-                <td>{d.base.moveSpeed}</td>
+                <td>{attackTicks(d.base.atkSpeed)}t</td>
+                <td>{moveTicks(d.base.moveSpeed)}t</td>
                 <td>{d.damage}</td>
-                <td className="wrap">
-                  <b>{d.abilityLabel}</b> ({d.base.maxEnergy} energy): {d.abilityText}
-                </td>
+                <td className="wrap">{d.targeting}</td>
               </tr>
             )
           })}

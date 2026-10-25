@@ -75,13 +75,16 @@ export const CONFIG = {
     levelMult: [0.6, 1, 1.35, 1.7, 2.1],
     /** Highest academy level, and so the most points a unit can be born with. */
     maxLevel: 4,
-    /** A higher-tier affinity can be dedicated once every parent has an academy at this level. */
+    /** An academy can evolve into a higher-tier child once every parent of that child has an academy at this level. */
     unlockLevel: 2,
     /**
-     * Offering an academy to a tier-T affinity, to reach level L:
-     * essence × L × T of each tier-1 root's essence, plus gold × L × T.
+     * Growing an academy (dedicate → Lv1, raise, or evolve into a child at Lv1) costs two things:
+     * an upfront payment for a tier-T affinity at level L — essence × L × T of each tier-1 root,
+     * plus gold × L × T — and a standing throughput commitment of flowPerLevel × L × T of each
+     * root essence per turn, taken from every turn's income from the next turn on.
      */
     research: { essence: 2, gold: 2 },
+    flowPerLevel: 1,
     /** Per affinity level: its units' quality rolls skew upward. */
     qualityBiasPerLevel: 0.08,
     /** Per affinity level: its units get this much extra HP and attack in combat. */
@@ -165,6 +168,8 @@ export const CONFIG = {
   trade: {
     /** Give `rate` of one resource for 1 of another. Improved by Trading Post adjacency, floored at `best`. */
     worst: 4,
+    /** Standing routes a Trading Post can run at once. */
+    maxRoutes: 3,
     best: 2,
   },
 
@@ -201,17 +206,45 @@ export const CONFIG = {
     farDistance: 3,
   },
 
+  /**
+   * Combat is tick based on a hex arena: one unit per cell, and every action
+   * (a step to the next cell, an attack, a skill) occupies the unit for a whole
+   * number of ticks.
+   */
   combat: {
-    tick: 0.05,
-    maxSeconds: 45,
-    fieldWidth: 24,
-    fieldHeight: 12,
+    ticksPerSecond: 10,
+    maxSeconds: 60,
+    /** Overtime from this tick on: damage +overtimeRamp per second (×1.5 after 5s), healing divided by the same. */
+    overtimeAfter: 300,
+    overtimeRamp: 0.1,
+    /** Hex radius of the arena (7 → 15 cells across). */
+    arenaRadius: 7,
     energyPerAttack: 10,
     energyPerHit: 4,
-    separationRadius: 0.9,
+    /** Fewest ticks any attack or step can take. */
+    minActionTicks: 3,
+    /** An attack lands this fraction of the way through its swing (max `maxWindup` ticks). */
+    windup: 0.35,
+    maxWindup: 4,
+    /** A skill: ticks before it takes effect, ticks the caster is busy in total. */
+    castWindup: 4,
+    castTicks: 8,
+    /** Taunt: reach in cells and how long enemies are locked onto the tank. */
+    tauntRadius: 3,
+    /** Mage Blast: hits every enemy within this many cells of its target. */
+    blastRadius: 2,
+    tauntTicks: 30,
+    /** Healers: an ally counts as hurt below this fraction of max HP. */
+    hurtBelow: 0.97,
+    /** Healer basic heal = attack × this. */
+    healPower: 2,
+    /** Healer hex: attack × damage, and the target deals `weaken` less damage for `weakenTicks`. */
+    hexDamage: 0.6,
+    weaken: 0.25,
+    weakenTicks: 30,
     /** Magic damage only counts this fraction of the target's defense. */
     magicDefFactor: 0.5,
-    slowSeconds: 1.5,
+    slowTicks: 15,
     maxDamageReduction: 0.75,
   },
 } as const

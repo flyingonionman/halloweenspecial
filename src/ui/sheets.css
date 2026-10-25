@@ -124,6 +124,115 @@
   color: var(--bone-dim);
 }
 
+/* Combat style: one summary line, click to expand the full text. */
+.us-style summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  list-style: none;
+  margin-bottom: 4px;
+}
+
+.us-style summary::-webkit-details-marker {
+  display: none;
+}
+
+.us-style summary h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.us-style summary h4::after {
+  content: '▸';
+  font-size: 11px;
+  color: var(--bone-faint);
+  transition: transform 0.15s;
+}
+
+.us-style[open] summary h4::after {
+  transform: rotate(90deg);
+}
+
+.us-more {
+  font-size: 11px;
+  color: var(--bone-faint);
+}
+
+.us-style[open] .us-more {
+  display: none;
+}
+
+/* Hero: tall animated figure left; identity, how it fights and the main action right. */
+.us-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: 46% 1fr;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.us-hero > .portrait {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 4;
+}
+
+.us-hero-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.us-hero-info h3,
+.us-hero-info .editable-name {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.05;
+}
+
+.us-hero .help-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+.us-brief {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 0;
+}
+
+.us-brief dt {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--bone-faint);
+}
+
+.us-brief dd {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--bone);
+}
+
+/* Main actions (Enlist, Bench/Deploy…) at the foot of the hero's right column. */
+.us-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.us-actions .btn-primary {
+  flex: 1 1 100%;
+}
+
 .us-style b {
   color: var(--bone);
 }
