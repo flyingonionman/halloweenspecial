@@ -25,6 +25,8 @@ import {
   canCaravanTrade,
   caravanTrade,
   SITE_DEFS,
+  OMEN_DEFS,
+  omenText,
   exploreSite,
   siteBlock,
   siteReachable,
@@ -874,6 +876,14 @@ function ScoutPanel({ onFocusTile }: { onFocusTile: (h: Hex) => void }) {
           . You meet them in {turnsLeft} turn{turnsLeft === 1 ? '' : 's'}. Lose and your civilization falls.
         </p>
       </div>
+      {[s.round, s.round + 1].map((r) => {
+        const o = s.omens?.[r]
+        return o ? (
+          <p key={r} className="scout-omen" data-help={`omen:${o}`}>
+            <b>{r === s.round ? 'This round' : 'Next round'}:</b> {OMEN_DEFS[o].glyph} {OMEN_DEFS[o].name}. {omenText(OMEN_DEFS[o])}
+          </p>
+        ) : null
+      })}
       <div className="scout-sealed">
         <span className="scout-seal">⚿</span>
         <p>Their troop stays hidden until the armies meet.</p>

@@ -16,6 +16,7 @@ import { Rng } from './rng'
 import { aiGhosts, campTroop, type GhostSnapshot } from './ai'
 import { birthCitizens, musterSize, rollCitizen, type BirthContext, type Citizen } from './citizens'
 import { SITES, SITE_DEFS, possibleEffects, type SiteEffect } from './sites'
+import { OMEN_IDS, type OmenId } from './omens'
 import { simulateCombat, type CombatResult } from './combat/sim'
 import { campLoot } from './deeds'
 import { SPECIES, speciesMods, type SpeciesId } from './species'
@@ -93,6 +94,8 @@ export interface GameState {
   levelsAtTurnStart?: Partial<Record<Affinity, number>>
   /** Timed bonuses from sites: extra food per turn. */
   boons?: { food: number; turns: number }[]
+  /** Omen per round index, rolled a round ahead (see omens.ts). */
+  omens?: Partial<Record<number, OmenId>>
 }
 
 export interface TurnReport {
@@ -153,7 +156,10 @@ export function moraleMult(morale: number): number {
   return m.outputAtZero + (m.outputAtMax - m.outputAtZero) * (morale / m.max)
 }
 
-type EconView = Pick<GameState, 'map' | 'morale' | 'troop'> & Partial<Pick<GameState, 'boons'>>
+type EconView = Pick<GameState, 'map' | 'morale' | 'troop'> & Partial<Pick<GameState, 'boons' | 'omens' | 'round'>>
+
+/** This round's omen, if any. */
+export const activeOmen = (s: Partial<Pick<GameState, 'omens' | 'round'>>): OmenId | null => s.omens?.[s.round ?? -1] ?? null
 
 /** What your fields actually produce this turn: city yields × morale × tier-1 troop synergies. */
 export function effectiveYields(s: EconView): Record<keyof CityStats['yields'], number> {
@@ -164,18 +170,25 @@ export function effectiveYields(s: EconView): Record<keyof CityStats['yields'], 
     Object.entries(c.yields).map(([k, v]) => [k, Math.round(v * mult * (1 + (eco.yieldPct[k as keyof typeof eco.yieldPct] ?? 0)))]),
   ) as Record<keyof CityStats['yields'], number>
   for (const b of s.boons ?? []) out.food += b.food
+  const omen = activeOmen(s)
+  if (omen === 'harvest') out.food = Math.round(out.food * 1.5)
+  if (omen === 'comet') out.fire *= 2
+  if (omen === 'pilgrims') out.gold = Math.round(out.gold * 0.75)
   return out
 }
 
 /** Morale regained each turn: base regen plus Light-style troop synergies. */
 export function moraleRegen(s: EconView): number {
-  return CONFIG.morale.regen + troopEconomy(s.troop, city(s).affinityLevels).morale
+  const omen = activeOmen(s)
+  if (omen === 'warFever') return 0
+  return CONFIG.morale.regen + troopEconomy(s.troop, city(s).affinityLevels).morale + (omen === 'pilgrims' ? 3 : 0)
 }
 
 /** Fractional population growth this turn, driven by (morale-adjusted) food. */
 export function growthRate(s: EconView): number {
   const { growthBase, growthPerFood, maxGrowth } = CONFIG.economy
-  return Math.min(maxGrowth, growthBase + growthPerFood * effectiveYields(s).food)
+  const rate = Math.min(maxGrowth, growthBase + growthPerFood * effectiveYields(s).food)
+  return activeOmen(s) === 'plague' ? rate / 2 : rate
 }
 
 export function birthContext(s: GameState): BirthContext {
@@ -228,6 +241,7 @@ function startRound(s: GameState, ctx: Ctx) {
   s.turn = 0
   s.ghost = aiGhosts.find(s.round, ctx.rng, ctx.makeUid)
   placeSites(s, ctx.rng)
+  rollOmen(s, ctx.rng)
   startTurn(s)
 }
 
@@ -368,11 +382,18 @@ export function academyCommitment(b: PlacedBuilding): { affinity: Affinity; leve
 const owned = (s: Pick<GameState, 'map'>) => s.map.tiles.filter((t) => t.owned)
 
 /** Essence per turn all your academies draw, together. */
-export function academyUpkeep(s: Pick<GameState, 'map'>): Cost {
+/** An academy's upkeep this turn (a Ley Surge halves it). */
+function upkeepOf(s: Partial<Pick<GameState, 'omens' | 'round'>>, affinity: Affinity, level: number): Cost {
+  const flow = academyFlow(affinity, level)
+  if (activeOmen(s) !== 'leySurge') return flow
+  return Object.fromEntries(Object.entries(flow).map(([k, v]) => [k, Math.ceil(v / 2)]))
+}
+
+export function academyUpkeep(s: Pick<GameState, 'map'> & Partial<Pick<GameState, 'omens' | 'round'>>): Cost {
   const out: Cost = {}
   for (const t of owned(s)) {
     const c = t.building?.id === 'academy' ? academyCommitment(t.building) : null
-    if (c) for (const [k, v] of Object.entries(academyFlow(c.affinity, c.level)) as [keyof Stock, number][]) out[k] = (out[k] ?? 0) + v
+    if (c) for (const [k, v] of Object.entries(upkeepOf(s, c.affinity, c.level)) as [keyof Stock, number][]) out[k] = (out[k] ?? 0) + v
   }
   return out
 }
@@ -452,7 +473,7 @@ function runAcademies(s: GameState) {
     if (b?.id !== 'academy') continue
     const c = academyCommitment(b)
     if (!c) continue
-    const upkeep = academyFlow(c.affinity, c.level)
+    const upkeep = upkeepOf(s, c.affinity, c.level)
     const starved = !canAfford(s, upkeep)
     if (!starved) pay(s, upkeep)
     if (starved && !b.starved) log(s, `The ${AFFINITY_LABEL[c.affinity]} academy is starved of essence and teaches nothing until its upkeep is paid.`)
@@ -597,7 +618,7 @@ export function recruit(state: GameState, uid: string): GameState {
   })
 }
 
-export const musterCost = (s: GameState) => CONFIG.muster.call.base + CONFIG.muster.call.step * s.musterCalls
+export const musterCost = (s: GameState) => (activeOmen(s) === 'plague' ? 0 : CONFIG.muster.call.base + CONFIG.muster.call.step * s.musterCalls)
 
 export function canCallMuster(s: GameState): boolean {
   return s.phase === 'turn' && s.morale >= musterCost(s)
@@ -610,6 +631,11 @@ export function callMuster(state: GameState): GameState {
     s.morale -= musterCost(s)
     s.musterCalls++
     s.muster = birthCitizens(birthContext(s), musterSize(s.species), ctx.rng, ctx.makeUid)
+    const omen = activeOmen(s)
+    for (const c of s.muster) {
+      if (omen === 'harvest') c.price = Math.ceil(c.price * 1.5)
+      if (omen === 'leySurge' && ctx.rng.chance(0.3)) c.unit.affinities = { [ctx.rng.pick(affinitiesOfTier(1))]: 1 }
+    }
     log(s, s.musterCalls === 1 ? 'Called a muster.' : 'Called a new muster.')
   })
 }
@@ -725,14 +751,35 @@ export function raidCamp(state: GameState, h: Hex): GameState {
       result,
       outcome: {
         ...baseOutcome(s, result),
-        gold: won ? loot.gold : 0,
+        gold: won ? loot.gold * lootMult(s) : 0,
         morale: won ? CONFIG.morale.raidWin : CONFIG.morale.raidLoss,
-        loot: won && res !== 'food' && res !== 'gold' ? { [res]: loot.resource } : {},
+        loot: won && res !== 'food' && res !== 'gold' ? { [res]: loot.resource * lootMult(s) } : {},
         claimed: won ? { q: h.q, r: h.r } : null,
       },
     }
     s.phase = 'battle'
   })
+}
+
+// ── Omens ─────────────────────────────────────────────────────────────
+
+const lootMult = (s: GameState) => (activeOmen(s) === 'warFever' ? 2 : 1)
+
+/** Roll next round's omen (rounds 2 to second-last only, never a repeat), from what fits your land. */
+function rollOmen(s: GameState, rng: Rng) {
+  const next = s.round + 1
+  if (next < 1 || next > CONFIG.rounds - 2) return
+  const used = new Set(Object.values(s.omens ?? {}))
+  const fits: Record<OmenId, boolean> = {
+    plague: true,
+    comet: s.map.tiles.some((t) => t.terrain === 'volcanic'),
+    warFever: true,
+    harvest: true,
+    leySurge: city(s).academies.length > 0,
+    pilgrims: ownsBuilding(s, 'church'),
+  }
+  const pool = OMEN_IDS.filter((o) => fits[o] && !used.has(o))
+  if (pool.length) (s.omens ??= {})[next] = rng.pick(pool)
 }
 
 // ── Sites ─────────────────────────────────────────────────────────────
@@ -823,9 +870,9 @@ export function exploreSite(state: GameState, h: Hex, option: number): GameState
       result,
       outcome: {
         ...baseOutcome(s, result),
-        gold: won ? (reward.gain?.gold ?? 0) : 0,
+        gold: won ? (reward.gain?.gold ?? 0) * lootMult(s) : 0,
         morale: won ? CONFIG.morale.raidWin : CONFIG.morale.raidLoss,
-        loot: won ? Object.fromEntries(Object.entries(reward.gain ?? {}).filter(([k]) => k !== 'gold')) : {},
+        loot: won ? Object.fromEntries(Object.entries(reward.gain ?? {}).filter(([k]) => k !== 'gold').map(([k, v]) => [k, v * lootMult(s)])) : {},
         claimed: won ? { q: h.q, r: h.r } : null,
         recruit: won && reward.citizen ? siteCitizen(s, ctx, reward.citizen) : null,
       },
@@ -898,6 +945,14 @@ export function endTurn(state: GameState): GameState {
         delete t.siteLeaving
       }
     s.morale = clampMorale(s.morale + moraleRegen(s))
+    if (activeOmen(s) === 'comet' && ctx.rng.chance(0.1)) {
+      const burnable = owned(s).filter((t) => t.terrain === 'volcanic' && t.building && t.building.id !== 'capital')
+      if (burnable.length) {
+        const t = ctx.rng.pick(burnable)
+        log(s, `The comet’s fire burned down a ${buildingName(t.building!.id, t.building!.level)}.`)
+        t.building = null
+      }
+    }
 
     // Whoever didn't answer this muster goes home; next turn starts empty.
     s.muster = []

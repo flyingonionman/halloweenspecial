@@ -46,6 +46,9 @@ import {
   type SpeciesId,
   type TerrainId,
   type UnitType,
+  OMEN_DEFS,
+  omenText,
+  type OmenId,
 } from '../../game'
 import { fmtOutputs } from '../format'
 import { fmtPop } from '../theme'
@@ -315,6 +318,11 @@ const STATIC: Record<string, Resolver> = {
     body: `NPC strongholds on the map, strength I–III. Raid one on your border with your troop: units can die, but win and you get gold, morale, the tile’s resource, and the tile itself. Losing a raid only costs units and a little morale.`,
     see: ['permadeath', 'land'],
   }),
+  omen: () => ({
+    title: 'Omens',
+    body: `Rounds 2 to ${CONFIG.rounds - 1} each bring an omen: a twist for the whole round that helps and hurts. Nobody chooses it, and no omen comes twice. The Scout warns you a round ahead.`,
+    see: ['scout'],
+  }),
   site: () => ({
     title: 'Sites',
     body: `Strange places on wild land: a shrine under a lake, a caldera, a frozen champion. ${CONFIG.sites.perRound} new ones appear each round, matched to their terrain. Once a site is on your border, its tile offers a choice; leaving it is always free. Near sites (pale) are mild. Far ones (violet), toward the edge, gamble harder for more.`,
@@ -516,6 +524,10 @@ const PARAM: Record<string, (arg: string) => Resolver | undefined> = {
   species: (a) => (a in SPECIES ? species(a as SpeciesId) : undefined),
   type: (a) => (a in TYPE_DEFS ? unitType(a as UnitType) : undefined),
   rarity: (a) => ((RARITIES as readonly string[]).includes(a) ? rarity(a as Rarity) : undefined),
+  omen: (a) =>
+    a in OMEN_DEFS
+      ? () => ({ title: `${OMEN_DEFS[a as OmenId].glyph} ${OMEN_DEFS[a as OmenId].name}`, body: omenText(OMEN_DEFS[a as OmenId]), see: ['omen'] })
+      : undefined,
 }
 
 export function getHelp(key: string, s: GameState): HelpEntry | null {

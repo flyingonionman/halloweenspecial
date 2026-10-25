@@ -385,6 +385,12 @@ small {
   color: var(--bone-dim);
 }
 
+.corner-menu .cm-omen {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #b58cff;
+}
+
 .corner-menu .cm-countdown.now {
   color: var(--ember);
 }

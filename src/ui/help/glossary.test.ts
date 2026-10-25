@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AFFINITIES, BUILDING_DEFS, RARITIES, RESOURCES, SPECIES_IDS, SYNERGY_DEFS, TERRAINS, UNIT_TYPES, chooseSpecies, newGame } from '../../game'
+import { AFFINITIES, BUILDING_DEFS, RARITIES, RESOURCES, SPECIES_IDS, SYNERGY_DEFS, TERRAINS, UNIT_TYPES, OMEN_IDS, chooseSpecies, newGame } from '../../game'
 import { getHelp } from './glossary'
 
 const s = chooseSpecies(newGame(1), 'human')
@@ -30,6 +30,7 @@ describe('right-click help', () => {
       ...RARITIES.map((r) => `rarity:${r}`),
       ...['gather', 'civic', 'faith', 'military', 'research'].map((k) => `kind:${k}`),
       'biome',
+      ...OMEN_IDS.map((o) => `omen:${o}`),
       ...['land', 'army', 'scout'].map((k) => `tab:${k}`),
       ...['hp', 'atk', 'def', 'rng', 'pwr'].map((k) => `stat:${k}`),
     ]

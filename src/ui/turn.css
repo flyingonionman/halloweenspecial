@@ -684,6 +684,13 @@ kbd {
   grid-column: 2;
 }
 
+.scout-omen {
+  margin: 8px 0;
+  padding: 6px 10px;
+  border-left: 2px solid #b58cff;
+  font-size: 13px;
+}
+
 .site-card {
   padding: 12px;
   border: 1px solid color-mix(in srgb, var(--site) 50%, transparent);
