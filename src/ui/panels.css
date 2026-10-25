@@ -617,11 +617,12 @@
   font-size: 11px;
 }
 
+/* a muster card with its synergy preview underneath; the card needs the full cell width */
 .muster-fig {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 2px;
+  text-align: center;
 }
 
 .pt-delta {
