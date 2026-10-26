@@ -42,7 +42,16 @@ const TEXTURES: Credit[] = [
   ['Rocky Terrain', 'hills'],
   ['Forest Ground 06', 'steppe'],
   ['Rocky Terrain 02', 'highlands'],
-].map(([what, used]) => ({ what: `${what} (${used})`, who: 'Poly Haven', license: 'CC0', link: POLY_HAVEN }))
+]
+  .map(([what, used]) => ({ what: `${what} (${used})`, who: 'Poly Haven', license: 'CC0', link: POLY_HAVEN }) as Credit)
+  .concat([
+    {
+      what: 'Water normals (lakes, animated)',
+      who: 'three.js authors',
+      license: 'MIT',
+      link: 'https://github.com/mrdoob/three.js/blob/r170/examples/textures/waternormals.jpg',
+    },
+  ])
 
 const FONTS: Credit[] = [
   { what: 'IM Fell English SC', who: 'Igino Marini', license: 'SIL OFL 1.1', link: 'https://fonts.google.com/specimen/IM+Fell+English+SC' },

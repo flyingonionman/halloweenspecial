@@ -130,6 +130,7 @@ src/ui/Credits.tsx   ⚙ → Credits. Every third-party asset + licence. CC-BY a
 - **Eye toggle** (top left of the board) cycles map lenses: Normal → Resources (tint by main resource, owned tiles labelled with output) → Buildings (building/academy/camp labels). `lensOverlays` in TurnScreen → `overlays` prop on Board3D.
 - Bare volcanic tiles use the volcano model **as the tile top** (`VolcanoTop`): its own floor is clamped to the hexagon (`fitToHex`), eased down at the rim, tinted with the tile's `topColor`, and the flat cap is hidden (`capHidden`). The volcanic photo texture only shows under buildings/camps. No other terrain props.
 - **Buildings stand centred** on their tile, drawn a bit larger than tile size so they read from the board camera (`PAD` at the centre, `PAD_SCALE` 0.95, capital `CAPITAL_SCALE` 1.15; the user asked for centred and bigger after trying corner pads). Relief eases flat under the pad. A volcanic tile with a building drops the volcano model and shows the volcanic rock texture.
+- **Lakes are animated water** (`WaterTop` in Board3D): a MeshStandardMaterial patched via `onBeforeCompile`. It has two layers of three.js's MIT `waternormals.jpg` (`public/textures/water_nor.webp`, credited) scrolling in world space, so ripples run seamlessly across lake tiles; sky reflection at grazing angles; lighter shallows and broken foam only on edges that meet land (`shore`, per HEX_DIRS edge, computed in `Tiles`). Whole lake tiles sit `LAKE_DROP` (0.09) lower than land (the user's call; the one exception to the flat board), so land walls form banks. Lower the *tile*, never just the water surface: that exposes the lake tiles' own walls as seams. Tiles don't lift on hover (the user found it annoying); hover only glows.
 - Dev hook: `window.__hs = { store, game }` (dev builds only) to drive the game from the console or Playwright.
 - Tile **selection is turquoise** (`SELECT_COLOR`), never yellow/orange: warm colours blend into the gold territory border.
 - Board `<Html>` labels need `zIndexRange={[20, 0]}` or they draw over modal sheets.
@@ -151,7 +152,6 @@ src/ui/Credits.tsx   ⚙ → Credits. Every third-party asset + licence. CC-BY a
 
 - Combat effects for the tree (placeholders); balance with `npm run balance` after big changes. After the biome/essence/academy-births rework and the tick-based combat rewrite (2026-10-25) the bot clears 0% (R1 50–100%, R2 ~20%); numbers are untuned.
 - Arena doodads/environments (the user plans to add them later; the ring currently has walls + six braziers).
-- Water texture: no free photo site has good water; plan is a procedural water shader (or three.js's MIT `waternormals.jpg`).
 - Real async PvP backend implementing `GhostSource`.
-- Lake still uses a procedural swatch; a Kenney hex kit was suggested for models.
+- A Kenney hex kit was suggested for models.
 - Damage/elimination tuning, density pass on the UI.

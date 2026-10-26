@@ -66,6 +66,8 @@ interface Props {
 
 /** The board is flat: every tile's top sits at the same height. Relief comes from the surface textures. */
 const TILE_H = 0.25;
+/** Lake tiles are this much lower than land (the one exception to the flat board). */
+const LAKE_DROP = 0.09;
 
 /** How far each prism sinks below the surface, so the curved planet never shows under a tile. */
 const SINK = 0.5;
@@ -717,13 +719,27 @@ function Tiles({
   gl.domElement.style.cursor = hover
     ? "url('/cursors/gauntlet-hover.svg') 3 2, pointer"
     : "";
+  // For each lake: which of its six edges touch land (or the map's edge), so foam only rims the shore.
+  const shores = useMemo(() => {
+    const lakes = new Set(map.tiles.filter((t) => t.terrain === "lake").map(hexKey));
+    const out: Record<string, string> = {};
+    for (const t of map.tiles) {
+      if (t.terrain !== "lake") continue;
+      out[hexKey(t)] = neighbors(t)
+        .map((n) => (lakes.has(hexKey(n)) ? "0" : "1"))
+        .join("");
+    }
+    return out;
+  }, [map.tiles]);
   return (
     <group>
+      <WaterClock />
       {map.tiles.map((t) => {
         const k = hexKey(t);
         return (
           <TileMesh
             key={k}
+            shore={shores[k]}
             tile={t}
             hovered={hover === k}
             selected={!!selected && selected.q === t.q && selected.r === t.r}
@@ -746,6 +762,124 @@ function Tiles({
 
 /** Tile radius = the grid spacing (hexToWorld size 1): tiles touch, so the land reads as one surface. */
 const HEX_R = 1;
+
+// ── Water ────────────────────────────────────────────────────────────────
+//
+// Lake tops are a little hex of animated water: two layers of the three.js
+// water normal map scrolling against each other in world space (so ripples run
+// across neighbouring lake tiles without seams), a deep-to-shallow teal, the
+// night sky reflected at grazing angles, and foam only along edges that touch
+// land (`shore`, one flag per HEX_DIRS direction).
+
+const WATER_NORMALS = "/textures/water_nor.webp";
+const waterClock = { value: 0 };
+/** Outward edge normals of a hex, in HEX_DIRS order (toward each neighbour's centre). */
+const WATER_EDGES = neighbors({ q: 0, r: 0 }).map((h) => {
+  const [x, z] = hexToWorld(h);
+  const l = Math.hypot(x, z);
+  return new THREE.Vector2(x / l, z / l);
+});
+const waterGeo = new THREE.CircleGeometry(HEX_R, 6, Math.PI / 6).rotateX(-Math.PI / 2);
+
+function WaterClock() {
+  useFrame((_, dt) => {
+    waterClock.value += dt;
+  });
+  return null;
+}
+
+function WaterTop({ shore, tint, emissive }: { shore: string; tint: THREE.Color; emissive: string }) {
+  const normals = useTexture(WATER_NORMALS);
+  normals.wrapS = normals.wrapT = THREE.RepeatWrapping;
+  const material = useMemo(() => {
+    const m = new THREE.MeshStandardMaterial({
+      color: "#1f6170",
+      roughness: 0.18,
+      metalness: 0.05,
+      normalMap: normals,
+      normalScale: new THREE.Vector2(0.55, 0.55),
+    });
+    const flags = shore.split("").map(Number);
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uTime = waterClock;
+      sh.uniforms.uShore = { value: flags };
+      sh.uniforms.uEdge = { value: WATER_EDGES };
+      sh.uniforms.uSky = { value: new THREE.Color("#7f93c9") };
+      sh.uniforms.uFoam = { value: new THREE.Color("#d9f2f4") };
+      // Multiplier toward shallow water: lighter and greener near the shore.
+      sh.uniforms.uShallow = { value: new THREE.Vector3(1.9, 1.75, 1.45) };
+      sh.vertexShader = sh.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying vec2 vWorldXZ;\nvarying vec2 vLocal;")
+        .replace(
+          "#include <worldpos_vertex>",
+          "#include <worldpos_vertex>\nvWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;\nvLocal = transformed.xz;",
+        );
+      sh.fragmentShader = sh.fragmentShader
+        .replace(
+          "#include <common>",
+          `#include <common>
+uniform float uTime;
+uniform float uShore[6];
+uniform vec2 uEdge[6];
+uniform vec3 uSky;
+uniform vec3 uFoam;
+uniform vec3 uShallow; // multiplier
+varying vec2 vWorldXZ;
+varying vec2 vLocal;
+/** 0 in open water, 1 right at a shore edge. */
+float shoreline() {
+  float apothem = 0.8660254;
+  float f = 0.0;
+  for (int k = 0; k < 6; k++) {
+    float d = apothem - dot(vLocal, uEdge[k]);
+    f = max(f, uShore[k] * (1.0 - smoothstep(0.0, 0.26, d)));
+  }
+  return f;
+}`,
+        )
+        .replace(
+          "#include <color_fragment>",
+          // Shallower, lighter water toward the shore.
+          "#include <color_fragment>\nfloat shoreAmt = shoreline();\ndiffuseColor.rgb *= mix(vec3(1.0), uShallow, shoreAmt * 0.7);",
+        )
+        .replace(
+          "#include <normal_fragment_maps>",
+          `#ifdef USE_NORMALMAP_TANGENTSPACE
+  vec2 wuv = vWorldXZ * 0.22;
+  vec3 n1 = texture2D(normalMap, wuv + vec2(uTime * 0.018, uTime * 0.011)).xyz * 2.0 - 1.0;
+  vec3 n2 = texture2D(normalMap, wuv * 1.6 + vec2(-uTime * 0.014, uTime * 0.019)).xyz * 2.0 - 1.0;
+  vec3 mapN = normalize(vec3(n1.xy + n2.xy, n1.z * n2.z));
+  mapN.xy *= normalScale;
+  normal = normalize(tbn * mapN);
+#endif`,
+        )
+        .replace(
+          "#include <opaque_fragment>",
+          `// The sky mirrored at grazing angles, then broken foam along the shore.
+float fres = pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), 3.0);
+outgoingLight = mix(outgoingLight, uSky * 0.55, fres * 0.65);
+// Two churning samples break the band into patches that drift and lap at the shore.
+float churn = texture2D(normalMap, vWorldXZ * 1.3 + vec2(uTime * 0.05, -uTime * 0.04)).r
+            * texture2D(normalMap, vWorldXZ * 2.1 + vec2(-uTime * 0.03, uTime * 0.06)).g;
+float lap = sin(uTime * 1.4 + (vWorldXZ.x + vWorldXZ.y) * 2.5) * 0.08;
+float foam = smoothstep(0.62, 0.92, shoreAmt * 0.95 + (churn - 0.3) * 0.9 + lap);
+outgoingLight = mix(outgoingLight, uFoam * 0.75, foam * 0.6);
+#include <opaque_fragment>`,
+        );
+    };
+    m.customProgramCacheKey = () => "hs-water";
+    return m;
+  }, [normals, shore]);
+  // Wild/dimmed tint and hover/selection glow, like the land tiles.
+  useEffect(() => {
+    material.color.set("#1f6170").multiply(tint);
+    material.emissive.set(emissive);
+  }, [material, tint, emissive]);
+  useEffect(() => () => material.dispose(), [material]);
+  // Level with the land: lowering it shows the lake tiles' own walls as seams between them.
+  return <mesh geometry={waterGeo} material={material} position-y={0.004} receiveShadow />;
+}
+
 const hexGeo = new THREE.CylinderGeometry(HEX_R, HEX_R, 1, 6);
 // CylinderGeometry puts a corner on +z; a 6-segment ring needs thetaStart π/6 to line up
 // after being laid flat. Outer edge sits exactly on the tile rim.
@@ -773,6 +907,8 @@ interface TileProps {
   onHover: (on: boolean) => void;
   onSelect: (h: Hex) => void;
   surfaces: Surfaces;
+  /** Lakes: one "1"/"0" per HEX_DIRS edge, "1" where it meets land. */
+  shore?: string;
 }
 
 /** Flat hex for map-lens tints, matching the tile top. */
@@ -789,11 +925,13 @@ const TileMesh = function TileMesh({
   onHover,
   onSelect,
   surfaces,
+  shore,
 }: TileProps) {
   const group = useRef<THREE.Group>(null);
   const ring = useRef<THREE.Mesh>(null);
   const pose = useMemo(() => planetPose(...hexToWorld(tile)), [tile.q, tile.r]);
-  const h = TILE_H;
+  // Lakes sit a little lower than the land, so their shores read as banks.
+  const h = tile.terrain === "lake" ? TILE_H - LAKE_DROP : TILE_H;
 
   /** Top tint multiplies the texture: white = full colour, darker = wild/dimmed. */
   const tint = useMemo(() => {
@@ -845,7 +983,8 @@ const TileMesh = function TileMesh({
   );
   useEffect(() => () => relief?.dispose(), [relief]);
   /** The cap stays for clicks and shadows but isn't drawn when something else is the top. */
-  const capHidden = !!relief || volcano;
+  // Lakes are drawn by WaterTop (animated); the flat cap stays only for clicks and shadows.
+  const capHidden = !!relief || volcano || lake;
   const topProps = {
     map: tex,
     normalMap: tileSurface?.normal ?? null,
@@ -856,11 +995,8 @@ const TileMesh = function TileMesh({
     emissive,
   };
 
-  useFrame((state, dt) => {
-    const g = group.current;
-    if (!g) return;
-    const target = hovered ? 0.08 : 0;
-    g.position.y += (target - g.position.y) * Math.min(1, dt * 14);
+  // Hover only glows (no lift: the user found the bobbing annoying); the selection ring pulses.
+  useFrame((state) => {
     if (ring.current) {
       const m = ring.current.material as THREE.MeshBasicMaterial;
       m.opacity = 0.65 + 0.3 * Math.sin(state.clock.elapsedTime * 4);
@@ -929,6 +1065,7 @@ const TileMesh = function TileMesh({
                 <BuildingMesh building={tile.building} terrain={tile.terrain} />
               </group>
             ))}
+          {lake && <WaterTop shore={shore ?? "111111"} tint={tint} emissive={emissive} />}
           {tile.camp && <CampMesh strength={tile.camp.strength} />}
           {tile.site && <SiteMesh far={SITE_DEFS[tile.site].far} />}
           {volcano && (
