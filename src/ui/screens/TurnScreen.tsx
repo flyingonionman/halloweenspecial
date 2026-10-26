@@ -37,7 +37,6 @@ import {
   routeCost,
   openRoute,
   closeRoute,
-  canUpgradeBuilding,
   city,
   civTier,
   claimBlock,
@@ -649,6 +648,8 @@ const RAID_REASON = {
 
 function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | null) => void }) {
   const [s, dispatch] = useGame()
+  const check = useRequirementCheck()
+  const [razing, setRazing] = useState<string | null>(null)
   if (!hex) return <p className="empty pad">Select a tile on the board. Drag to pan, scroll to zoom, right-drag to rotate.</p>
   const t = tileAt(s.map, hex)!
   const td = TERRAIN_DEFS[t.terrain]
@@ -659,17 +660,15 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
 
   return (
     <div className="tile-panel">
+      <button className="btn btn-small btn-ghost tile-back" onClick={() => onSelect(null)}>
+        ← All buildings
+      </button>
       <header className="tile-head" style={{ '--terrain': TERRAIN_COLOR[t.terrain] } as React.CSSProperties} data-help={def ? `building:${def.id}` : `terrain:${t.terrain}`}>
         <span className="tile-swatch" />
         <div>
           <h3>{def ? buildingName(def.id, t.building!.level) : td.label}</h3>
           <p>
             {td.label} · yields {RESOURCE_LABEL[td.resource]}
-            {td.affinity && (
-              <>
-                {' '}· breeds <span style={{ color: AFFINITY_COLOR[td.affinity] }}>{AFFINITY_LABEL[td.affinity]}</span>
-              </>
-            )}
           </p>
         </div>
         <span className={`tile-status ${t.owned ? 'owned' : isFrontier ? 'frontier' : ''}`}>{t.owned ? 'yours' : isFrontier ? 'border' : 'wild'}</span>
@@ -699,7 +698,7 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
                 Level {t.building!.level}/{def.maxLevel}
               </span>
               {t.building!.level < def.maxLevel && (
-                <button className="btn btn-small" disabled={!canUpgradeBuilding(s, t)} onClick={() => dispatch((st) => upgradeBuilding(st, t))}>
+                <button className="btn btn-small" onClick={(e) => check(e.currentTarget, def.cost(t.building!.level + 1)) && dispatch((st) => upgradeBuilding(st, t))}>
                   {def.levelNames ? `Upgrade to ${buildingName(def.id, t.building!.level + 1)}` : `Raise to Lv${t.building!.level + 1}`}{' '}
                   <CostChips cost={def.cost(t.building!.level + 1)} />
                 </button>
@@ -707,11 +706,11 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
             </div>
           )}
           <button
-            className="btn btn-small btn-ghost"
+            className={`btn btn-small ${razing === hexKey(t) ? 'btn-war' : 'btn-ghost'}`}
             data-help="demolish"
-            onClick={() => confirm(`Demolish ${def.name}? You get back half its cost.`) && dispatch((st) => demolish(st, t))}
+            onClick={() => (razing === hexKey(t) ? (setRazing(null), dispatch((st) => demolish(st, t))) : setRazing(hexKey(t)))}
           >
-            Demolish <CostChips cost={demolishRefund(s, t)} />
+            {razing === hexKey(t) ? 'Click again to demolish' : 'Demolish'} <CostChips cost={demolishRefund(s, t)} />
           </button>
         </div>
       )}
@@ -726,20 +725,19 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
         <div className="tile-actions">
           {isFrontier ? (
             (() => {
-              const gold = claimBlock(s, t, 'gold')
-              const earth = claimBlock(s, t, 'earth')
-              const block = gold && earth ? (gold === 'gold' ? earth : gold) : null
+              const block = claimBlock(s, t, 'gold')
+              const hard = block === 'gold' ? null : block
               return (
                 <>
                   <div className="row">
-                    <button className="btn btn-primary" data-help="claim" disabled={!!gold} onClick={() => dispatch((st) => claimTile(st, t, 'gold'))}>
+                    <button className="btn btn-primary" data-help="claim" disabled={!!hard} onClick={(e) => check(e.currentTarget, { gold: claimCost(s) }) && dispatch((st) => claimTile(st, t, 'gold'))}>
                       Claim · <b className="gold">{claimCost(s)}</b> gold
                     </button>
-                    <button className="btn" data-help="resource:earth" disabled={!!earth} onClick={() => dispatch((st) => claimTile(st, t, 'earth'))}>
+                    <button className="btn" data-help="resource:earth" disabled={!!hard} onClick={(e) => check(e.currentTarget, { earth: claimEarthCost(s) }) && dispatch((st) => claimTile(st, t, 'earth'))}>
                       Claim · <CostChips cost={{ earth: claimEarthCost(s) }} />
                     </button>
                   </div>
-                  {block && <p className="muted">{CLAIM_REASON[block]}</p>}
+                  {hard && <p className="muted">{CLAIM_REASON[hard]}</p>}
                 </>
               )
             })()
@@ -782,9 +780,6 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
           })()}
         </div>
       )}
-      <button className="btn btn-small btn-ghost close" onClick={() => onSelect(null)}>
-        ← All buildings
-      </button>
     </div>
   )
 }

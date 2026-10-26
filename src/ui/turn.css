@@ -543,6 +543,10 @@ kbd {
   padding: 14px 16px 28px;
 }
 
+.tile-back {
+  margin-bottom: 10px;
+}
+
 .tile-head {
   --terrain: #888;
   display: grid;
