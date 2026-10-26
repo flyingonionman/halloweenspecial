@@ -24,7 +24,7 @@ import { useRequirementCheck } from '../toast'
 import { AFFINITY_COLOR, KIND_COLOR, TERRAIN_COLOR } from '../theme'
 import { BuildingPreview } from './Board3D'
 
-const SECTIONS: { kind: BuildingKind; label: string }[] = [
+export const SECTIONS: { kind: BuildingKind; label: string }[] = [
   { kind: 'gather', label: 'Gathering' },
   { kind: 'civic', label: 'Civic' },
   { kind: 'research', label: 'Research' },

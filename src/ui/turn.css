@@ -664,7 +664,16 @@ kbd {
 
 .build-opt:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+
+.build-opt.poor {
+  opacity: 0.7;
+}
+
+.build-options .bp-tier {
+  margin: 8px 0 0;
 }
 
 .bo-name {

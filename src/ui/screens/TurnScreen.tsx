@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
   AFFINITY_DEFS,
   AFFINITY_LABEL,
@@ -73,12 +73,12 @@ import {
 } from '../../game'
 import { useGame } from '../useGame'
 import { Board3D, type TileOverlay, type TilePreview } from '../board/Board3D'
-import { BuildPanel } from '../board/BuildPanel'
+import { BuildPanel, SECTIONS } from '../board/BuildPanel'
 import { ArmyPanel } from '../components/TroopPanel'
 import { AcademyPanel } from '../components/AcademyPanel'
 import { deny, showToast, useRequirementCheck } from '../toast'
 import { BuildingGlyph, CostChips } from '../components/BuildingBits'
-import { fmtOutputs, outputParts, outputScore } from '../format'
+import { fmtOutputs, outputParts } from '../format'
 import { AFFINITY_COLOR, AFFINITY_GLYPH, KIND_COLOR, PLAIN_COLOR, RARITY_COLOR, RESOURCE_COLOR, RESOURCE_GLYPH, TERRAIN_COLOR, fmtPop } from '../theme'
 
 // ── Map lenses (the eye toggle) ───────────────────────────────────────
@@ -794,31 +794,40 @@ const NOT_HERE: Partial<Record<NonNullable<BuildBlock>, (b: BuildingDef) => stri
   unique: () => 'already built',
 }
 
-/** Every building: what fits this tile first (by what it would make here), then the rest and why not. */
+/** Every building, in the Build tab's order; what can't go here is greyed out with the reason. */
 function BuildOptions({ hex }: { hex: Hex }) {
   const [s, dispatch] = useGame()
   const check = useRequirementCheck()
-  const options = BUILDINGS.map((b) => ({ b, block: buildBlock(s, hex, b.id), out: evaluateBuilding(s.map, hex, b.id).output }))
-    .map((o) => ({ ...o, fits: o.block === null || o.block === 'cost' }))
-    .sort((x, y) => Number(y.fits) - Number(x.fits) || outputScore(y.out) - outputScore(x.out))
   return (
     <div className="build-options">
       <span className="label" data-help="adjacency">
         Build here
       </span>
-      {options.map(({ b, block, out, fits }) => (
-        <button
-          key={b.id}
-          className={`build-opt ${block === 'cost' ? 'poor' : ''}`}
-          disabled={!fits}
-          onClick={(e) => check(e.currentTarget, buildCost(s, b.id)) && dispatch((st) => placeBuilding(st, hex, b.id))}
-        >
-          <span className="bo-name">
-            <BuildingGlyph def={b} /> {b.name}
-          </span>
-          <span className="bo-out">{fits ? outputParts(out).map((p) => p.text).join(' · ') || '—' : NOT_HERE[block!]?.(b)}</span>
-          {fits && <CostChips cost={buildCost(s, b.id)} />}
-        </button>
+      {SECTIONS.map((sec) => (
+        <Fragment key={sec.kind}>
+          <h4 className="bp-tier" data-help={`kind:${sec.kind}`}>
+            {sec.label}
+          </h4>
+          {BUILDINGS.filter((b) => b.kind === sec.kind).map((b) => {
+            const block = buildBlock(s, hex, b.id)
+            const fits = block === null || block === 'cost'
+            const out = evaluateBuilding(s.map, hex, b.id).output
+            return (
+              <button
+                key={b.id}
+                className={`build-opt ${block === 'cost' ? 'poor' : ''}`}
+                disabled={!fits}
+                onClick={(e) => check(e.currentTarget, buildCost(s, b.id)) && dispatch((st) => placeBuilding(st, hex, b.id))}
+              >
+                <span className="bo-name">
+                  <BuildingGlyph def={b} /> {b.name}
+                </span>
+                <span className="bo-out">{fits ? outputParts(out).map((p) => p.text).join(' · ') || '—' : NOT_HERE[block!]?.(b)}</span>
+                <CostChips cost={buildCost(s, b.id)} />
+              </button>
+            )
+          })}
+        </Fragment>
       ))}
     </div>
   )
