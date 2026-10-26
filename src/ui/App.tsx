@@ -11,6 +11,8 @@ import {
   moraleRegen,
   ownedTiles,
   territoryCap,
+  OMEN_DEFS,
+  activeOmen,
 } from '../game'
 import { useGame, useStore } from './useGame'
 import { SpeciesScreen } from './screens/SpeciesScreen'
@@ -189,6 +191,16 @@ function CornerMenu({ onScreen }: { onScreen: (s: Screen) => void }) {
           {s.phase !== 'species' && (
             <span className="cm-where" data-help="turn">
               R{s.round + 1} · T{s.turn + 1}/{CONFIG.turnsPerRound}
+            </span>
+          )}
+          {s.phase === 'turn' && (
+            <span className={`cm-countdown ${last ? 'now' : ''}`} data-help="timeline">
+              {last ? '⚔ Battle after this turn' : `⚔ Battle in ${CONFIG.turnsPerRound - s.turn} turns`}
+            </span>
+          )}
+          {s.phase === 'turn' && activeOmen(s) && (
+            <span className="cm-omen" data-help={`omen:${activeOmen(s)}`}>
+              {OMEN_DEFS[activeOmen(s)!].glyph} {OMEN_DEFS[activeOmen(s)!].name}
             </span>
           )}
         </span>

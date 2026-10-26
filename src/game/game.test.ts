@@ -253,6 +253,8 @@ describe('buildings & adjacency', () => {
     expect(academyBlock(s, a!, { kind: 'evolve', affinity: 'magma', level: 1 })).toBe('locked')
     s = endTurn(s)
     expect(city(s).affinityLevels).toMatchObject({ fire: 2, earth: 2 })
+    expect(s.report!.levelsUp).toEqual(expect.arrayContaining([['earth', 2]]))
+    expect(s.report!.unlocked).toContain('magma')
     const evolve = academyMoves(s, a!).find((m) => m.kind === 'evolve' && m.affinity === 'magma')!
     expect(academyBlock(s, a!, evolve)).toBeNull()
     s = endTurn(commitAcademy(s, a!, evolve))
@@ -475,6 +477,15 @@ describe('turns & deeds', () => {
     expect(next.turn).toBe(1)
     expect(next.population).toBeGreaterThan(s.population)
     expect(next.stock.gold).toBeGreaterThan(s.stock.gold)
+  })
+
+  it('ending a turn reports what changed', () => {
+    const s = started(4)
+    const after = endTurn(s)
+    const r = after.report!
+    expect([r.round, r.turn]).toEqual([s.round, s.turn])
+    expect(r.population).toBe(after.population - s.population)
+    expect(r.gained.gold ?? 0).toBe(after.stock.gold - s.stock.gold)
   })
 
   it('an empty troop can still march, and forfeits', () => {

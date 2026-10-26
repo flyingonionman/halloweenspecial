@@ -10,19 +10,22 @@
  * Morale is both currency (calling musters, enlisting citizens) and productivity
  * (it scales every field's output), so recruiting hard weakens the economy.
  */
-import { CONFIG } from './config'
+import { CONFIG, RARITIES, type Rarity } from './config'
+import { civTier } from './population'
 import { Rng } from './rng'
 import { aiGhosts, campTroop, type GhostSnapshot } from './ai'
-import { birthCitizens, musterSize, type BirthContext, type Citizen } from './citizens'
+import { birthCitizens, musterSize, rollCitizen, type BirthContext, type Citizen } from './citizens'
+import { SITES, SITE_DEFS, possibleEffects, type SiteEffect } from './sites'
+import { OMEN_IDS, type OmenId } from './omens'
 import { simulateCombat, type CombatResult } from './combat/sim'
 import { campLoot } from './deeds'
 import { SPECIES, speciesMods, type SpeciesId } from './species'
-import { releaseRefund, upgradeCost, type Unit } from './units/unit'
-import { AFFINITY_LABEL, academyFlow, affinitiesOfTier, childrenOf, researchCost, type Affinity } from './affinities'
+import { createUnit, releaseRefund, upgradeCost, type Unit } from './units/unit'
+import { AFFINITIES, AFFINITY_DEFS, AFFINITY_LABEL, academyFlow, affinitiesOfTier, childrenOf, researchCost, type Affinity } from './affinities'
 import { BUILDING_DEFS, buildingName, canPlaceOn, totalCost, type BuildingId } from './world/buildings'
 import { cityBonuses, evaluateCity, isUnlocked, type CityStats } from './world/city'
 import { troopEconomy } from './synergy'
-import { hexKey, type Hex } from './world/hex'
+import { hexDistance, hexKey, type Hex } from './world/hex'
 import { frontier, generateMap, ownedTiles, tileAt, type PlacedBuilding, type TradeRoute, type WorldMap } from './world/map'
 import { RESOURCE_LABEL, TERRAIN_DEFS, emptyStock, type Cost, type Material, type Stock } from './world/terrain'
 
@@ -41,6 +44,8 @@ export interface BattleOutcome {
   morale: number
   /** Skirmish: the camp tile claimed on victory. */
   claimed: Hex | null
+  /** Site fights: a citizen who joins on victory. */
+  recruit?: Unit | null
 }
 
 export interface Battle {
@@ -83,6 +88,31 @@ export interface GameState {
   victory: boolean
   history: { round: number; won: boolean; opponent: string }[]
   log: LogEntry[]
+  /** What the last End turn did, for the turn report. Absent until the first turn ends. */
+  report?: TurnReport
+  /** Affinity levels when this turn began, so the report can say what rose. */
+  levelsAtTurnStart?: Partial<Record<Affinity, number>>
+  /** Timed bonuses from sites: extra food per turn. */
+  boons?: { food: number; turns: number }[]
+  /** Omen per round index, rolled a round ahead (see omens.ts). */
+  omens?: Partial<Record<number, OmenId>>
+}
+
+export interface TurnReport {
+  /** The turn that just ended. */
+  round: number
+  turn: number
+  gained: Cost
+  population: number
+  morale: number
+  /** A rarity your population just made possible, if any. */
+  newRarity: Rarity | null
+  /** Extra border tiles you're now allowed to hold. */
+  moreLand: number
+  /** Affinities whose level (best academy) rose this turn, with the new level. */
+  levelsUp: [Affinity, number][]
+  /** Tier-2+ affinities whose academies can now be dedicated. */
+  unlocked: Affinity[]
 }
 
 type Ctx = { rng: Rng; makeUid: () => string }
@@ -126,27 +156,39 @@ export function moraleMult(morale: number): number {
   return m.outputAtZero + (m.outputAtMax - m.outputAtZero) * (morale / m.max)
 }
 
-type EconView = Pick<GameState, 'map' | 'morale' | 'troop'>
+type EconView = Pick<GameState, 'map' | 'morale' | 'troop'> & Partial<Pick<GameState, 'boons' | 'omens' | 'round'>>
+
+/** This round's omen, if any. */
+export const activeOmen = (s: Partial<Pick<GameState, 'omens' | 'round'>>): OmenId | null => s.omens?.[s.round ?? -1] ?? null
 
 /** What your fields actually produce this turn: city yields × morale × tier-1 troop synergies. */
 export function effectiveYields(s: EconView): Record<keyof CityStats['yields'], number> {
   const mult = moraleMult(s.morale)
   const c = city(s)
   const eco = troopEconomy(s.troop, c.affinityLevels)
-  return Object.fromEntries(
+  const out = Object.fromEntries(
     Object.entries(c.yields).map(([k, v]) => [k, Math.round(v * mult * (1 + (eco.yieldPct[k as keyof typeof eco.yieldPct] ?? 0)))]),
   ) as Record<keyof CityStats['yields'], number>
+  for (const b of s.boons ?? []) out.food += b.food
+  const omen = activeOmen(s)
+  if (omen === 'harvest') out.food = Math.round(out.food * 1.5)
+  if (omen === 'comet') out.fire *= 2
+  if (omen === 'pilgrims') out.gold = Math.round(out.gold * 0.75)
+  return out
 }
 
 /** Morale regained each turn: base regen plus Light-style troop synergies. */
 export function moraleRegen(s: EconView): number {
-  return CONFIG.morale.regen + troopEconomy(s.troop, city(s).affinityLevels).morale
+  const omen = activeOmen(s)
+  if (omen === 'warFever') return 0
+  return CONFIG.morale.regen + troopEconomy(s.troop, city(s).affinityLevels).morale + (omen === 'pilgrims' ? 3 : 0)
 }
 
 /** Fractional population growth this turn, driven by (morale-adjusted) food. */
 export function growthRate(s: EconView): number {
   const { growthBase, growthPerFood, maxGrowth } = CONFIG.economy
-  return Math.min(maxGrowth, growthBase + growthPerFood * effectiveYields(s).food)
+  const rate = Math.min(maxGrowth, growthBase + growthPerFood * effectiveYields(s).food)
+  return activeOmen(s) === 'plague' ? rate / 2 : rate
 }
 
 export function birthContext(s: GameState): BirthContext {
@@ -198,11 +240,14 @@ export function chooseSpecies(state: GameState, id: SpeciesId): GameState {
 function startRound(s: GameState, ctx: Ctx) {
   s.turn = 0
   s.ghost = aiGhosts.find(s.round, ctx.rng, ctx.makeUid)
+  placeSites(s, ctx.rng)
+  rollOmen(s, ctx.rng)
   startTurn(s)
 }
 
 function startTurn(s: GameState) {
   s.musterCalls = 0
+  s.levelsAtTurnStart = { ...city(s).affinityLevels }
 }
 
 const findOwned = (s: GameState, uid: string) => s.troop.find((u) => u.uid === uid) ?? s.bench.find((u) => u.uid === uid)
@@ -337,11 +382,18 @@ export function academyCommitment(b: PlacedBuilding): { affinity: Affinity; leve
 const owned = (s: Pick<GameState, 'map'>) => s.map.tiles.filter((t) => t.owned)
 
 /** Essence per turn all your academies draw, together. */
-export function academyUpkeep(s: Pick<GameState, 'map'>): Cost {
+/** An academy's upkeep this turn (a Ley Surge halves it). */
+function upkeepOf(s: Partial<Pick<GameState, 'omens' | 'round'>>, affinity: Affinity, level: number): Cost {
+  const flow = academyFlow(affinity, level)
+  if (activeOmen(s) !== 'leySurge') return flow
+  return Object.fromEntries(Object.entries(flow).map(([k, v]) => [k, Math.ceil(v / 2)]))
+}
+
+export function academyUpkeep(s: Pick<GameState, 'map'> & Partial<Pick<GameState, 'omens' | 'round'>>): Cost {
   const out: Cost = {}
   for (const t of owned(s)) {
     const c = t.building?.id === 'academy' ? academyCommitment(t.building) : null
-    if (c) for (const [k, v] of Object.entries(academyFlow(c.affinity, c.level)) as [keyof Stock, number][]) out[k] = (out[k] ?? 0) + v
+    if (c) for (const [k, v] of Object.entries(upkeepOf(s, c.affinity, c.level)) as [keyof Stock, number][]) out[k] = (out[k] ?? 0) + v
   }
   return out
 }
@@ -421,7 +473,7 @@ function runAcademies(s: GameState) {
     if (b?.id !== 'academy') continue
     const c = academyCommitment(b)
     if (!c) continue
-    const upkeep = academyFlow(c.affinity, c.level)
+    const upkeep = upkeepOf(s, c.affinity, c.level)
     const starved = !canAfford(s, upkeep)
     if (!starved) pay(s, upkeep)
     if (starved && !b.starved) log(s, `The ${AFFINITY_LABEL[c.affinity]} academy is starved of essence and teaches nothing until its upkeep is paid.`)
@@ -566,7 +618,7 @@ export function recruit(state: GameState, uid: string): GameState {
   })
 }
 
-export const musterCost = (s: GameState) => CONFIG.muster.call.base + CONFIG.muster.call.step * s.musterCalls
+export const musterCost = (s: GameState) => (activeOmen(s) === 'plague' ? 0 : CONFIG.muster.call.base + CONFIG.muster.call.step * s.musterCalls)
 
 export function canCallMuster(s: GameState): boolean {
   return s.phase === 'turn' && s.morale >= musterCost(s)
@@ -579,6 +631,11 @@ export function callMuster(state: GameState): GameState {
     s.morale -= musterCost(s)
     s.musterCalls++
     s.muster = birthCitizens(birthContext(s), musterSize(s.species), ctx.rng, ctx.makeUid)
+    const omen = activeOmen(s)
+    for (const c of s.muster) {
+      if (omen === 'harvest') c.price = Math.ceil(c.price * 1.5)
+      if (omen === 'leySurge' && ctx.rng.chance(0.3)) c.unit.affinities = { [ctx.rng.pick(affinitiesOfTier(1))]: 1 }
+    }
     log(s, s.musterCalls === 1 ? 'Called a muster.' : 'Called a new muster.')
   })
 }
@@ -694,14 +751,159 @@ export function raidCamp(state: GameState, h: Hex): GameState {
       result,
       outcome: {
         ...baseOutcome(s, result),
-        gold: won ? loot.gold : 0,
+        gold: won ? loot.gold * lootMult(s) : 0,
         morale: won ? CONFIG.morale.raidWin : CONFIG.morale.raidLoss,
-        loot: won && res !== 'food' && res !== 'gold' ? { [res]: loot.resource } : {},
+        loot: won && res !== 'food' && res !== 'gold' ? { [res]: loot.resource * lootMult(s) } : {},
         claimed: won ? { q: h.q, r: h.r } : null,
       },
     }
     s.phase = 'battle'
   })
+}
+
+// ── Omens ─────────────────────────────────────────────────────────────
+
+const lootMult = (s: GameState) => (activeOmen(s) === 'warFever' ? 2 : 1)
+
+/** Roll next round's omen (rounds 2 to second-last only, never a repeat), from what fits your land. */
+function rollOmen(s: GameState, rng: Rng) {
+  const next = s.round + 1
+  if (next < 1 || next > CONFIG.rounds - 2) return
+  const used = new Set(Object.values(s.omens ?? {}))
+  const fits: Record<OmenId, boolean> = {
+    plague: true,
+    comet: s.map.tiles.some((t) => t.terrain === 'volcanic'),
+    warFever: true,
+    harvest: true,
+    leySurge: city(s).academies.length > 0,
+    pilgrims: ownsBuilding(s, 'church'),
+  }
+  const pool = OMEN_IDS.filter((o) => fits[o] && !used.has(o))
+  if (pool.length) (s.omens ??= {})[next] = rng.pick(pool)
+}
+
+// ── Sites ─────────────────────────────────────────────────────────────
+
+/** A caravan in reach swaps anything 1:1; it moves on at the end of the turn you trade. */
+export function canCaravanTrade(s: GameState, at: Hex, give: Material, get: Material): boolean {
+  return s.phase === 'turn' && tileAt(s.map, at)?.site === 'caravan' && siteReachable(s, at) && give !== get && s.stock[give] >= 1
+}
+
+export function caravanTrade(state: GameState, at: Hex, give: Material, get: Material): GameState {
+  if (!canCaravanTrade(state, at, give, get)) return state
+  return produce(state, (s) => {
+    s.stock[give] -= 1
+    s.stock[get] += 1
+    tileAt(s.map, at)!.siteLeaving = true
+  })
+}
+
+const hasRoom = (s: GameState) => s.troop.length < troopSize(s) || s.bench.length < CONFIG.benchSize
+const enlistFree = (s: GameState, u: Unit) => {
+  if (s.troop.length < troopSize(s)) s.troop.push(u)
+  else if (s.bench.length < CONFIG.benchSize) s.bench.push(u)
+}
+
+/** A few new sites each round, on wild tiles of their terrain; far ones toward the edge. */
+function placeSites(s: GameState, rng: Rng) {
+  const capital = s.map.tiles.find((t) => t.building?.id === 'capital')!
+  const free = s.map.tiles.filter((t) => !t.owned && !t.camp && !t.site && !t.building)
+  const pairs = SITES.flatMap((d) =>
+    free.filter((t) => d.terrains.includes(t.terrain) && (hexDistance(t, capital) >= CONFIG.sites.farDistance) === d.far).map((t) => ({ d, t })),
+  )
+  for (let i = 0; i < CONFIG.sites.perRound; i++) {
+    const open = pairs.filter((p) => !p.t.site)
+    if (!open.length) return
+    const { d, t } = rng.pick(open)
+    t.site = d.id
+  }
+}
+
+export function siteReachable(s: GameState, h: Hex): boolean {
+  const t = tileAt(s.map, h)
+  return !!t?.site && (t.owned || frontier(s.map).some((f) => f.q === h.q && f.r === h.r))
+}
+
+export type SiteBlock = 'no-site' | 'unreachable' | 'cost' | 'morale' | 'no-room' | 'no-troop' | 'no-academy' | null
+
+export function siteBlock(s: GameState, h: Hex, option: number): SiteBlock {
+  const t = tileAt(s.map, h)
+  const o = t?.site ? SITE_DEFS[t.site].options[option] : undefined
+  if (!o) return 'no-site'
+  if (!siteReachable(s, h)) return 'unreachable'
+  if (o.cost && !canAfford(s, o.cost)) return 'cost'
+  if (o.morale && s.morale < o.morale) return 'morale'
+  const fx = possibleEffects(o)
+  if (fx.some((e) => e.fight) && s.troop.length === 0) return 'no-troop'
+  if (fx.some((e) => e.citizen) && !hasRoom(s)) return 'no-room'
+  if (fx.some((e) => e.academyUp) && !city(s).academies.some((a) => a.level < CONFIG.affinity.maxLevel)) return 'no-academy'
+  return null
+}
+
+/** Choose an option on a site's card. Rolls its outcome; a fight starts a skirmish. */
+export function exploreSite(state: GameState, h: Hex, option: number): GameState {
+  if (state.phase !== 'turn' || siteBlock(state, h, option)) return state
+  return produce(state, (s, ctx) => {
+    const tile = tileAt(s.map, h)!
+    const def = SITE_DEFS[tile.site!]
+    const o = def.options[option]!
+    if (o.cost) pay(s, o.cost)
+    if (o.morale) s.morale -= o.morale
+    let r = ctx.rng.next()
+    const outcome = o.outcomes.find((x) => (r -= x.chance) < 0) ?? o.outcomes.at(-1)!
+    const fx = outcome.effect
+    applySiteEffect(s, ctx, fx)
+    if (!fx.fight) {
+      delete tile.site
+      log(s, `${def.name}: ${outcome.text}.`)
+      return
+    }
+    // A fight: like raiding a camp, but the prize is the site's.
+    const { name, strength, reward } = fx.fight
+    const enemy = campTroop({ strength, name }, tile.terrain, s.round, ctx.rng, ctx.makeUid)
+    const result = simulateCombat({ units: s.troop, bonuses: cityBonuses(city(s)) }, { units: enemy.troop, bonuses: enemy.bonuses }, ctx.rng.fork())
+    const won = result.winner === 0
+    s.battle = {
+      kind: 'skirmish',
+      name,
+      enemy: enemy.troop,
+      result,
+      outcome: {
+        ...baseOutcome(s, result),
+        gold: won ? (reward.gain?.gold ?? 0) * lootMult(s) : 0,
+        morale: won ? CONFIG.morale.raidWin : CONFIG.morale.raidLoss,
+        loot: won ? Object.fromEntries(Object.entries(reward.gain ?? {}).filter(([k]) => k !== 'gold').map(([k, v]) => [k, v * lootMult(s)])) : {},
+        claimed: won ? { q: h.q, r: h.r } : null,
+        recruit: won && reward.citizen ? siteCitizen(s, ctx, reward.citizen) : null,
+      },
+    }
+    s.phase = 'battle'
+  })
+}
+
+function siteCitizen(s: GameState, ctx: Ctx, c: NonNullable<SiteEffect['citizen']>): Unit {
+  const roll = rollCitizen(birthContext(s), ctx.rng)
+  if (c.affinity) roll.affinities = { [c.affinity]: 1 }
+  const ri = c.rarity ? RARITIES.indexOf(c.rarity) : RARITIES.indexOf(roll.rarity) + (c.rarityUp ?? 0)
+  roll.rarity = RARITIES[Math.min(RARITIES.length - 1, ri)]!
+  return createUnit(ctx.makeUid(), roll, ctx.rng)
+}
+
+/** Everything but the fight itself (which resolves through the battle screen). */
+function applySiteEffect(s: GameState, ctx: Ctx, e: SiteEffect) {
+  if (e.gain) gain(s, e.gain)
+  if (e.morale) s.morale = clampMorale(s.morale + e.morale)
+  if (e.boon) (s.boons ??= []).push({ ...e.boon })
+  if (e.populationPct) s.population = Math.max(1, Math.round(s.population * (1 + e.populationPct)))
+  if (e.citizen) enlistFree(s, siteCitizen(s, ctx, e.citizen))
+  if (e.killUnit && s.troop.length && !speciesMods(s.species).noPermadeath) {
+    const [u] = s.troop.splice(Math.floor(ctx.rng.next() * s.troop.length), 1)
+    log(s, `${u!.name} died in the eruption.`)
+  }
+  if (e.academyUp) {
+    const open = s.map.tiles.filter((t) => t.building?.id === 'academy' && t.building.affinity && t.building.level < CONFIG.affinity.maxLevel)
+    if (open.length) ctx.rng.pick(open).building!.level++
+  }
 }
 
 function baseOutcome(s: GameState, result: CombatResult) {
@@ -727,6 +929,7 @@ export function endTurn(state: GameState): GameState {
   if (!canEndTurn(state)) return state
   return produce(state, (s, ctx) => {
     const c = city(s)
+    const before = { stock: { ...s.stock }, population: s.population, morale: s.morale, cap: territoryCap(s) }
     for (const [k, v] of Object.entries(effectiveYields(s))) if (k !== 'food') s.stock[k as keyof Stock] += v
     runTrades(s)
     runAcademies(s)
@@ -735,12 +938,42 @@ export function endTurn(state: GameState): GameState {
       s.stock.gold += Math.min(max, Math.floor(s.stock.gold / per))
     }
     s.population = Math.round(s.population * (1 + growthRate(s)))
+    s.boons = (s.boons ?? []).map((b) => ({ ...b, turns: b.turns - 1 })).filter((b) => b.turns > 0)
+    for (const t of s.map.tiles)
+      if (t.siteLeaving) {
+        delete t.site
+        delete t.siteLeaving
+      }
     s.morale = clampMorale(s.morale + moraleRegen(s))
+    if (activeOmen(s) === 'comet' && ctx.rng.chance(0.1)) {
+      const burnable = owned(s).filter((t) => t.terrain === 'volcanic' && t.building && t.building.id !== 'capital')
+      if (burnable.length) {
+        const t = ctx.rng.pick(burnable)
+        log(s, `The comet’s fire burned down a ${buildingName(t.building!.id, t.building!.level)}.`)
+        t.building = null
+      }
+    }
 
     // Whoever didn't answer this muster goes home; next turn starts empty.
     s.muster = []
 
     if (!isLastTurn(s)) {
+      cityCache.delete(s.map) // academies just changed level
+      const levels = city(s).affinityLevels
+      const start = s.levelsAtTurnStart ?? levels
+      const gained: Cost = {}
+      for (const k of Object.keys(s.stock) as (keyof Stock)[]) if (s.stock[k] !== before.stock[k]) gained[k] = s.stock[k] - before.stock[k]
+      s.report = {
+        round: s.round,
+        turn: s.turn,
+        gained,
+        population: s.population - before.population,
+        morale: s.morale - before.morale,
+        newRarity: civTier(s.population) !== civTier(before.population) ? civTier(s.population) : null,
+        moreLand: territoryCap(s) - before.cap,
+        levelsUp: AFFINITIES.filter((a) => (levels[a] ?? 0) > (start[a] ?? 0)).map((a) => [a, levels[a]!]),
+        unlocked: AFFINITIES.filter((a) => AFFINITY_DEFS[a].tier > 1 && isUnlocked(a, levels) && !isUnlocked(a, start)),
+      }
       s.turn++
       startTurn(s)
       return
@@ -778,8 +1011,10 @@ export function finishBattle(state: GameState): GameState {
       if (outcome.claimed) {
         const t = tileAt(s.map, outcome.claimed)!
         t.camp = null
+        delete t.site
         t.owned = true
       }
+      if (outcome.won && outcome.recruit) enlistFree(s, outcome.recruit)
       const lootText = (Object.entries(outcome.loot) as [Material, number][]).map(([k, v]) => `+${v} ${RESOURCE_LABEL[k]}`)
       log(s, outcome.won ? `Razed ${name}: +${outcome.gold} gold${lootText.length ? ', ' + lootText.join(', ') : ''}.` : `Repelled at ${name}.`)
       s.phase = 'turn'

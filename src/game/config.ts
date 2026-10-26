@@ -199,6 +199,13 @@ export const CONFIG = {
     populationMult: [0, 0.5, 1, 2],
   },
 
+  sites: {
+    /** New event sites each round (fewer if no tile fits). */
+    perRound: 2,
+    /** Far sites sit at least this far from the capital; near ones closer. */
+    farDistance: 3,
+  },
+
   /**
    * Combat is tick based on a hex arena: one unit per cell, and every action
    * (a step to the next cell, an attack, a skill) occupies the unit for a whole

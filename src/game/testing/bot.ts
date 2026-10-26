@@ -30,8 +30,13 @@ import {
   upgradeBuilding,
   upgradeUnit,
   raidCamp,
+
+  exploreSite,
+  siteBlock,
+  siteReachable,
   type GameState,
 } from '../game'
+import { SITE_DEFS } from '../sites'
 import { unitPower, type Unit } from '../units/unit'
 import { type BuildingId } from '../world/buildings'
 import { frontier, ownedTiles } from '../world/map'
@@ -109,6 +114,12 @@ export function playTurn(s: GameState, style: BotStyle, mem: BotMemory): GameSta
   const power = s.troop.reduce((n, u) => n + unitPower(u), 0)
   const camp = frontier(s.map).find((t) => t.camp && !raidBlock(s, t) && power > 220 * t.camp.strength * (1 + s.round))
   if (camp) s = finishBattle(raidCamp(s, camp))
+
+  // 5b. Sites in reach: take any sure, fight-free option it can afford (the cautious player).
+  for (const tile of s.map.tiles.filter((x) => x.site && siteReachable(s, x))) {
+    const i = SITE_DEFS[tile.site!].options.findIndex((o, j) => o.outcomes.length === 1 && !o.outcomes[0]!.effect.fight && !siteBlock(s, tile, j))
+    if (i >= 0) s = exploreSite(s, tile, i)
+  }
 
   // 6. Expand toward essence land (earth first, if any), keeping a gold reserve for units.
   const want = (t: TerrainId) => (TERRAIN_DEFS[t].affinity && focus.includes(TERRAIN_DEFS[t].affinity!) ? 3 : TERRAIN_DEFS[t].basic ? 1 : 2)

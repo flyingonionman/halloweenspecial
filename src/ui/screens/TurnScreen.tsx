@@ -20,8 +20,17 @@ import {
   offerLight,
   campLoot,
   campRarityHint,
-  canRecruit,
   canCallMuster,
+  canRecruit,
+  canCaravanTrade,
+  caravanTrade,
+  SITE_DEFS,
+  OMEN_DEFS,
+  activeOmen,
+  omenText,
+  exploreSite,
+  siteBlock,
+  siteReachable,
   netYields,
   tradeRoutes,
   routeBlock,
@@ -47,9 +56,6 @@ import {
   placeBuilding,
   raidBlock,
   raidCamp,
-  recruit,
-  musterCost,
-  callMuster,
   territoryCap,
   tierProgress,
   tileAt,
@@ -58,17 +64,19 @@ import {
   type GameState,
   type Hex,
   type Material,
+  type BuildBlock,
+  type SiteBlock,
+  type Tile,
+  type BuildingDef,
   type Outputs,
   type ResourceId,
 } from '../../game'
 import { useGame } from '../useGame'
 import { Board3D, type TileOverlay, type TilePreview } from '../board/Board3D'
 import { BuildPanel } from '../board/BuildPanel'
-import { TroopPanel } from '../components/TroopPanel'
-import { FigureCard } from '../components/FigureCard'
-import { UnitDetail } from '../components/UnitDetail'
+import { ArmyPanel } from '../components/TroopPanel'
 import { AcademyPanel } from '../components/AcademyPanel'
-import { deny, useRequirementCheck } from '../toast'
+import { deny, showToast, useRequirementCheck } from '../toast'
 import { BuildingGlyph, CostChips } from '../components/BuildingBits'
 import { fmtOutputs, outputParts, outputScore } from '../format'
 import { AFFINITY_COLOR, AFFINITY_GLYPH, KIND_COLOR, PLAIN_COLOR, RARITY_COLOR, RESOURCE_COLOR, RESOURCE_GLYPH, TERRAIN_COLOR, fmtPop } from '../theme'
@@ -120,13 +128,13 @@ function lensOverlays(s: GameState, lens: Lens): Record<string, TileOverlay> | n
   return out
 }
 
-type RightTab = 'tile' | 'muster' | 'troop' | 'build' | 'scout'
+type RightTab = 'land' | 'army' | 'scout'
 
 export function TurnScreen() {
   const [s, dispatch] = useGame()
   const [selected, setSelected] = useState<Hex | null>(null)
   const [armed, setArmed] = useState<BuildingId | null>(null)
-  const [tab, setTab] = useState<RightTab>('muster')
+  const [tab, setTab] = useState<RightTab>('army')
 
   const frontierKeys = useMemo(() => new Set(frontier(s.map).map(hexKey)), [s.map])
   const check = useRequirementCheck()
@@ -164,14 +172,23 @@ export function TurnScreen() {
       return
     }
     setSelected(h)
-    if (h) setTab('tile')
+    if (h) setTab('land')
   }
 
+  // "Unused" dots: something on that tab can be done right now. A nudge, not a to-do list.
+  const unused = useMemo((): Partial<Record<RightTab, string>> => {
+    const owned = ownedTiles(s.map)
+    const out: Partial<Record<RightTab, string>> = {}
+    if (s.musterCalls === 0 ? canCallMuster(s) : s.muster.some((c) => canRecruit(s, c.unit.uid)))
+      out.army = s.musterCalls === 0 ? 'You can recruit this turn' : 'You can enlist someone waiting in the muster'
+    if (BUILDINGS.some((b) => owned.some((t) => !buildBlock(s, t, b.id)))) out.land = 'You can afford a building'
+    else if (frontier(s.map).some((t) => !claimBlock(s, t))) out.land = 'You can claim a border tile'
+    return out
+  }, [s])
+
   const RIGHT: [RightTab, string][] = [
-    ['tile', 'Tile'],
-    ['muster', 'Muster'],
-    ['troop', `Troop ${s.troop.length}`],
-    ['build', 'Build'],
+    ['land', 'Land'],
+    ['army', `Army ${s.troop.length}`],
     ['scout', 'Scout'],
   ]
 
@@ -192,6 +209,7 @@ export function TurnScreen() {
           {LENS_LABEL[lens]}
           <small>{LENSES.indexOf(lens) + 1}/{LENSES.length}</small>
         </button>
+        <TurnReportCard />
         {armed && (
           <div className="armed-hint">
             Placing <b>{BUILDING_DEFS[armed].name}</b>. Click a highlighted tile. <kbd>Esc</kbd> to cancel.
@@ -201,16 +219,15 @@ export function TurnScreen() {
       <aside className="side">
         <nav className="side-tabs">
           {RIGHT.map(([id, label]) => (
-            <button key={id} data-help={`tab:${id}`} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>
+            <button key={id} data-help={`tab:${id}`} className={tab === id ? 'on' : ''} onClick={() => setTab(id)} title={unused[id]}>
               {label}
+              {unused[id] && <i className="tab-dot" aria-label={unused[id]} />}
             </button>
           ))}
         </nav>
         <div className="side-body">
-          {tab === 'tile' && <TilePanel hex={selected} onSelect={onSelect} />}
-          {tab === 'muster' && <MusterPanel />}
-          {tab === 'troop' && <TroopPanel />}
-          {tab === 'build' && <BuildPanel armed={armed} onArm={setArmed} />}
+          {tab === 'land' && (selected ? <TilePanel hex={selected} onSelect={onSelect} /> : <BuildPanel armed={armed} onArm={setArmed} />)}
+          {tab === 'army' && <ArmyPanel />}
           {tab === 'scout' && <ScoutPanel onFocusTile={(h) => onSelect(h)} />}
         </div>
       </aside>
@@ -218,9 +235,101 @@ export function TurnScreen() {
   )
 }
 
+// ── Board: what the last End turn did ─────────────────────────────────
+
+function TurnReportCard() {
+  const [s] = useGame()
+  const r = s.report
+  const id = r ? `${r.round}-${r.turn}` : ''
+  const [closed, setClosed] = useState('')
+  if (!r || r.round !== s.round || closed === id) return null
+  const left = CONFIG.turnsPerRound - s.turn
+  const did = s.log.filter((l) => l.round === r.round && l.turn === r.turn)
+  return (
+    <div className="turn-report" data-help="turn">
+      <header>
+        <span>Turn {r.turn + 1} report</span>
+        <button className="btn-ghost" onClick={() => setClosed(id)} aria-label="Close the turn report">
+          ✕
+        </button>
+      </header>
+      <ul>
+        {Object.keys(r.gained).length > 0 && (
+          <li>
+            Stores <CostChips cost={r.gained} />
+          </li>
+        )}
+        <li>
+          Population <b className="mono">{r.population >= 0 ? '+' : ''}{fmtPop(r.population)}</b> → {fmtPop(s.population)}
+        </li>
+        {r.morale !== 0 && (
+          <li>
+            Morale <b className="mono">{r.morale > 0 ? '+' : ''}{r.morale}</b> → {s.morale}
+          </li>
+        )}
+        {r.newRarity && (
+          <li className="tr-news">
+            <span style={{ color: RARITY_COLOR[r.newRarity] }}>{r.newRarity}</span> citizens can now answer your musters
+          </li>
+        )}
+        {(r.levelsUp ?? []).map(([a, lv]) => (
+          <li key={a} className="tr-news">
+            <span style={{ color: AFFINITY_COLOR[a] }}>
+              {AFFINITY_GLYPH[a]} {AFFINITY_LABEL[a]}
+            </span>{' '}
+            {lv === 1 ? 'academy dedicated: citizens can be born with it' : `reached Lv${lv}: stronger synergy, higher affinity points`}
+          </li>
+        ))}
+        {(r.unlocked ?? []).map((a) => (
+          <li key={a} className="tr-news">
+            Unlocked{' '}
+            <span style={{ color: AFFINITY_COLOR[a] }}>
+              {AFFINITY_GLYPH[a]} {AFFINITY_LABEL[a]}
+            </span>
+            : dedicate an academy to it
+          </li>
+        ))}
+        {r.moreLand > 0 && <li className="tr-news">Room for {r.moreLand} more tile{r.moreLand === 1 ? '' : 's'} of land</li>}
+        {did.map((l, i) => (
+          <li key={i} className="tr-did">
+            {l.text}
+          </li>
+        ))}
+        <li className="tr-battle">⚔ {left === 1 ? 'Battle after this turn' : `Battle in ${left} turns`}</li>
+      </ul>
+    </div>
+  )
+}
+
 // ── Left: population ──────────────────────────────────────────────────
 
 /** Population, rarity and affinity odds (top-left dropdown). */
+/** How population grows, in plain numbers: the formula with your food filled in, and how long to the next rarity. */
+function GrowthExplainer() {
+  const [s] = useGame()
+  const e = CONFIG.economy
+  const food = effectiveYields(s).food
+  const g = growthRate(s)
+  const tp = tierProgress(s.population)
+  const turns = tp.next && g > 0 ? Math.ceil(Math.log(tp.nextAt! / s.population) / Math.log(1 + g)) : null
+  const pct = (v: number) => `${Math.round(v * 100)}%`
+  return (
+    <div className="growth-explainer" data-help="growth">
+      <p>
+        Grows every turn: <b className="mono">{pct(e.growthBase)}</b> + <b className="mono">{pct(e.growthPerFood)}</b> × <b className="mono">{food}</b> food ={' '}
+        <b className="mono">+{pct(g)}</b>
+        {activeOmen(s) === 'plague' ? <small> (halved by the Plague Year)</small> : g >= e.maxGrowth && <small> (capped)</small>}
+      </p>
+      {turns !== null && (
+        <p>
+          <span style={{ color: RARITY_COLOR[tp.next!] }}>{tp.next}</span> citizens in about <b className="mono">{turns}</b> turn{turns === 1 ? '' : 's'} at this rate.
+        </p>
+      )}
+      <p className="muted">More food: farms, plains, fisheries, high morale, Water in your troop. Recruiting doesn’t cost population.</p>
+    </div>
+  )
+}
+
 export function PopulationTab() {
   const [s] = useGame()
   const c = city(s)
@@ -242,6 +351,7 @@ export function PopulationTab() {
           </span>
         </span>
       </div>
+      <GrowthExplainer />
 
       <h3 className="section-title" data-help="birth-odds">
         Rarity of new citizens
@@ -483,6 +593,38 @@ function TradeBox() {
   )
 }
 
+/** A caravan in reach: one-off swaps at 1:1. */
+function CaravanBox({ at }: { at: Hex }) {
+  const [s, dispatch] = useGame()
+  const [give, setGive] = useState<Material>('stone')
+  const [get, setGet] = useState<Material>('fire')
+  return (
+    <div className="trade-box">
+      <span className="label">Trade 1:1</span>
+      <div className="trade">
+        <select value={give} onChange={(e) => setGive(e.target.value as Material)} aria-label="Give">
+          {MATERIALS.map((m) => (
+            <option key={m} value={m}>
+              {RESOURCE_LABEL[m]} ({s.stock[m]})
+            </option>
+          ))}
+        </select>
+        <span>→</span>
+        <select value={get} onChange={(e) => setGet(e.target.value as Material)} aria-label="Get">
+          {MATERIALS.map((m) => (
+            <option key={m} value={m}>
+              {RESOURCE_LABEL[m]}
+            </option>
+          ))}
+        </select>
+        <button className="btn btn-small" disabled={!canCaravanTrade(s, at, give, get)} onClick={() => dispatch((st) => caravanTrade(st, at, give, get))}>
+          Trade
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /** Opened from a Church's tile: light's secondary role. */
 function OfferBox() {
   const [s, dispatch] = useGame()
@@ -607,6 +749,8 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
         </div>
       )}
 
+      {t.site && <SiteCard tile={t} />}
+
       {t.camp && (
         <div className="camp-card" data-help="camp">
           <h4>
@@ -639,111 +783,98 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
         </div>
       )}
       <button className="btn btn-small btn-ghost close" onClick={() => onSelect(null)}>
-        Deselect
+        ← All buildings
       </button>
     </div>
   )
 }
 
+const NOT_HERE: Partial<Record<NonNullable<BuildBlock>, (b: BuildingDef) => string>> = {
+  terrain: (b) => (b.allowed === 'any' ? 'not here' : `${b.allowed.map((t) => TERRAIN_DEFS[t].label).join(' or ')} only`),
+  unique: () => 'already built',
+}
+
+/** Every building: what fits this tile first (by what it would make here), then the rest and why not. */
 function BuildOptions({ hex }: { hex: Hex }) {
   const [s, dispatch] = useGame()
-  const options = BUILDINGS.map((b) => ({ b, block: buildBlock(s, hex, b.id) }))
-    .filter(({ block }) => block === null || block === 'cost')
-    .map(({ b, block }) => ({ b, block, out: evaluateBuilding(s.map, hex, b.id).output }))
-    .sort((x, y) => Number(!!x.block) - Number(!!y.block) || outputScore(y.out) - outputScore(x.out))
-    .slice(0, 6)
+  const check = useRequirementCheck()
+  const options = BUILDINGS.map((b) => ({ b, block: buildBlock(s, hex, b.id), out: evaluateBuilding(s.map, hex, b.id).output }))
+    .map((o) => ({ ...o, fits: o.block === null || o.block === 'cost' }))
+    .sort((x, y) => Number(y.fits) - Number(x.fits) || outputScore(y.out) - outputScore(x.out))
   return (
     <div className="build-options">
       <span className="label" data-help="adjacency">
-        Best builds here
+        Build here
       </span>
-      {options.map(({ b, block, out }) => (
-        <button key={b.id} className={`build-opt ${block ? 'poor' : ''}`} disabled={!!block} onClick={() => dispatch((st) => placeBuilding(st, hex, b.id))}>
+      {options.map(({ b, block, out, fits }) => (
+        <button
+          key={b.id}
+          className={`build-opt ${block === 'cost' ? 'poor' : ''}`}
+          disabled={!fits}
+          onClick={(e) => check(e.currentTarget, buildCost(s, b.id)) && dispatch((st) => placeBuilding(st, hex, b.id))}
+        >
           <span className="bo-name">
             <BuildingGlyph def={b} /> {b.name}
           </span>
-          <span className="bo-out">{outputParts(out).map((p) => p.text).join(' · ') || '—'}</span>
-          <CostChips cost={b.cost(1)} />
+          <span className="bo-out">{fits ? outputParts(out).map((p) => p.text).join(' · ') || '—' : NOT_HERE[block!]?.(b)}</span>
+          {fits && <CostChips cost={buildCost(s, b.id)} />}
         </button>
       ))}
     </div>
   )
 }
 
-// ── Right: muster ─────────────────────────────────────────────────────
+const SITE_REASON: Record<Exclude<NonNullable<SiteBlock>, 'cost'>, string> = {
+  'no-site': 'Nothing here.',
+  unreachable: 'Out of reach: claim land next to it first.',
+  morale: 'Not enough morale.',
+  'no-room': 'Your troop and bench are full.',
+  'no-troop': 'You need a troop to fight.',
+  'no-academy': 'You need a dedicated academy below its top level.',
+}
 
-function MusterPanel() {
+/** A site's choice card. Leaving is free: just don't choose. */
+function SiteCard({ tile }: { tile: Tile }) {
   const [s, dispatch] = useGame()
-  const [open, setOpen] = useState<string | null>(null)
-  const current = open ? s.muster.find((m) => m.unit.uid === open) : undefined
-
-  if (current) {
-    return (
-      <UnitDetail
-        inline
-        unit={current.unit}
-        s={s}
-        inTroop={false}
-        onClose={() => setOpen(null)}
-        actions={
+  const check = useRequirementCheck()
+  const def = SITE_DEFS[tile.site!]
+  const reachable = siteReachable(s, tile)
+  return (
+    <div className={`site-card ${def.far ? 'far' : ''}`} data-help="site">
+      <h4>
+        {def.glyph} {def.name} <small>{def.far ? 'far · risky' : 'near'}</small>
+      </h4>
+      <p className="muted">{def.text}</p>
+      {!reachable && <p className="muted">{SITE_REASON.unreachable}</p>}
+      {reachable && def.id === 'caravan' && <CaravanBox at={tile} />}
+      {def.options.map((o, i) => (
+        <div key={i} className="site-opt">
           <button
-            className="btn btn-primary"
+            className="btn btn-small"
+            disabled={!reachable}
             onClick={(e) => {
-              if (!canRecruit(s, current.unit.uid)) {
-                deny(e.currentTarget, s.morale < current.price ? `You are missing ${current.price - s.morale} morale.` : 'Your troop and bench are full.')
-                return
-              }
-              dispatch((st) => recruit(st, current.unit.uid))
-              setOpen(null)
+              const block = siteBlock(s, tile, i)
+              if (block === 'cost') return void check(e.currentTarget, o.cost!)
+              if (block) return deny(e.currentTarget, block === 'morale' ? `You are missing ${o.morale! - s.morale} morale.` : SITE_REASON[block])
+              const next = exploreSite(s, tile, i)
+              dispatch(() => next)
+              // The fight itself plays out on the battle screen; anything else, say what happened.
+              if (next.phase === 'turn') showToast(next.log.at(-1)?.text)
             }}
           >
-            Enlist <b className="morale-cost">✦{current.price}</b>
+            {o.label} {o.cost && <CostChips cost={o.cost} />}
+            {o.morale && <b className="morale-cost">✦{o.morale}</b>}
           </button>
-        }
-      />
-    )
-  }
-
-  const recruitNow = (e: React.MouseEvent<HTMLButtonElement>) => {
-    if (!canCallMuster(s)) return deny(e.currentTarget, `You are missing ${musterCost(s) - s.morale} morale.`)
-    dispatch(callMuster)
-  }
-  const first = s.musterCalls === 0
-
-  return (
-    <div>
-      <div className="muster-head">
-        <p className="lede" data-help="muster">
-          {first ? (
-            <>
-              Nobody is waiting. <b>Recruit</b> to call a muster for <b>morale</b>, then enlist who you want.
-            </>
-          ) : (
-            <>
-              This turn’s muster. Enlist with <b>morale</b>; recruiting again sends them home and calls new ones.
-            </>
-          )}
-        </p>
-        {!first && (
-          <button className="btn btn-small" data-help="recruit" onClick={recruitNow}>
-            ↻ Recruit again <b className="morale-cost">✦{musterCost(s)}</b>
-          </button>
-        )}
-      </div>
-      <div className="muster-morale" data-help="morale">
-        ✦ {s.morale} morale · fields ×{moraleMult(s.morale).toFixed(2)}
-      </div>
-      {first && (
-        <button className="btn btn-primary muster-call" data-help="recruit" onClick={recruitNow}>
-          Recruit <b className="morale-cost">✦{musterCost(s)}</b>
-        </button>
-      )}
-      {!first && s.muster.length === 0 && <p className="empty">Everyone answered. Recruit again to call more.</p>}
-      <div className="portrait-grid">
-        {s.muster.map((c) => (
-          <FigureCard key={c.unit.uid} unit={c.unit} dim={c.price > s.morale} onClick={() => setOpen(c.unit.uid)} corner={<b className="morale-cost">✦{c.price}</b>} />
-        ))}
-      </div>
+          <ul>
+            {o.outcomes.map((x, j) => (
+              <li key={j}>
+                {x.chance < 1 && <b className="mono">{Math.round(x.chance * 100)}%</b>} {x.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {reachable && def.options.length > 0 && <p className="muted">Or leave it. It waits for you.</p>}
     </div>
   )
 }
@@ -773,10 +904,34 @@ function ScoutPanel({ onFocusTile }: { onFocusTile: (h: Hex) => void }) {
           . You meet them in {turnsLeft} turn{turnsLeft === 1 ? '' : 's'}. Lose and your civilization falls.
         </p>
       </div>
+      {[s.round, s.round + 1].map((r) => {
+        const o = s.omens?.[r]
+        return o ? (
+          <p key={r} className="scout-omen" data-help={`omen:${o}`}>
+            <b>{r === s.round ? 'This round' : 'Next round'}:</b> {OMEN_DEFS[o].glyph} {OMEN_DEFS[o].name}. {omenText(OMEN_DEFS[o])}
+          </p>
+        ) : null
+      })}
       <div className="scout-sealed">
         <span className="scout-seal">⚿</span>
         <p>Their troop stays hidden until the armies meet.</p>
       </div>
+      <h3 className="section-title" data-help="site">
+        Sites
+      </h3>
+      <ul className="camp-list">
+        {s.map.tiles.filter((t) => t.site).length === 0 && <li className="muted">None yet. New ones appear each round.</li>}
+        {s.map.tiles
+          .filter((t) => t.site)
+          .map((t) => (
+            <li key={hexKey(t)}>
+              <button className="linkish" onClick={() => onFocusTile(t)}>
+                {SITE_DEFS[t.site!].glyph} {SITE_DEFS[t.site!].name} <small>{SITE_DEFS[t.site!].far ? 'far' : 'near'}</small>
+              </button>
+              <span className={siteReachable(s, t) ? 'ok' : 'muted'}>{siteReachable(s, t) ? 'in reach' : 'out of reach'}</span>
+            </li>
+          ))}
+      </ul>
       <h3 className="section-title" data-help="camp">
         Camps
       </h3>

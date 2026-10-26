@@ -7,6 +7,7 @@
  * 3–5, strays in pairs. The capital's ring is basic land with one speciality
  * tile, the tip of a cluster reaching in from outside.
  */
+import type { SiteId } from '../sites'
 import type { Affinity } from '../affinities'
 import { CONFIG } from '../config'
 import type { Rng } from '../rng'
@@ -50,6 +51,10 @@ export interface Tile extends Hex {
   owned: boolean
   building: PlacedBuilding | null
   camp: Camp | null
+  /** An event site (see sites.ts). */
+  site?: SiteId
+  /** The caravan was traded with this turn and moves on when it ends. */
+  siteLeaving?: boolean
 }
 
 export interface WorldMap {
