@@ -22,6 +22,8 @@ import {
   TYPE_DEFS,
   musterSize,
   growthRate,
+  foodDemand,
+  popCap,
   effectiveYields,
   moraleMult,
   musterCost,
@@ -152,9 +154,21 @@ const STATIC: Record<string, Resolver> = {
   food: (s) => ({
     title: 'Food',
     kind: 'Resource',
-    body: `Food isn’t stored. It feeds growth: each point of food adds ${pct(CONFIG.economy.growthPerFood)} growth per turn. Plains, lakes and farms produce it.`,
-    live: `${effectiveYields(s).food} food this turn.`,
-    see: ['growth', 'building:farm'],
+    body: `Food isn’t stored. Your people eat some every turn (see Food upkeep); each point left over adds ${pct(CONFIG.economy.growthPerFood)} growth. Plains, lakes and farms produce it, and farms and fisheries can be upgraded to make more.`,
+    live: `${effectiveYields(s).food} food made, ${foodDemand(s.population)} eaten.`,
+    see: ['food-upkeep', 'growth', 'building:farm'],
+  }),
+  'food-upkeep': (s) => ({
+    title: 'Food upkeep',
+    body: `Everyone eats: the more people, the more food, though it grows slower than the crowd (population ^ ${CONFIG.economy.foodDemandExp}). Fall short and it is a famine: growth stops and you lose ${CONFIG.economy.famineMorale} morale a turn. Nobody starves to death.`,
+    live: `${foodDemand(s.population)} food eaten per turn at ${s.population.toLocaleString()} people.`,
+    see: ['food', 'growth', 'civ-level'],
+  }),
+  'civ-level': (s) => ({
+    title: 'Civilization level',
+    body: `The capital’s level sets the most people your city can hold: ${CONFIG.civ.map((c) => `${c.name} ${c.popCap.toLocaleString()}`).join(', ')}. Raising the next one is a one-off purchase from the capital’s tile and takes hold when the turn ends. Rarer citizens need a bigger city, so plan the upgrade before a battle, not after.`,
+    live: `${CONFIG.civ[s.civLevel]!.name}: ${s.population.toLocaleString()} of ${popCap(s).toLocaleString()}.`,
+    see: ['population', 'food-upkeep'],
   }),
   growth: (s) => {
     const e = CONFIG.economy

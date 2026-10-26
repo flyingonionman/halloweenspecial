@@ -1,6 +1,8 @@
 /**
  * Every tunable number lives here so balance passes don't require touching logic.
  */
+import type { Cost } from './world/terrain'
+
 
 export const RARITIES = ['common', 'uncommon', 'rare', 'epic', 'legendary'] as const
 export type Rarity = (typeof RARITIES)[number]
@@ -145,9 +147,24 @@ export const CONFIG = {
     growthBase: 0.1,
     growthPerFood: 0.02,
     maxGrowth: 0.6,
+    /** Mouths to feed: food demand = ceil(population ^ foodDemandExp). Sublinear so it scales with exponential growth. */
+    foodDemandExp: 0.3,
+    /** Morale lost each turn food falls short of demand (soft famine: growth stops, nobody dies). */
+    famineMorale: 10,
     /** Humans: +1 gold per `per` held at turn end, up to `max`. */
     interest: { per: 10, max: 3 },
   },
+
+  /**
+   * Civilization level (the capital's upgrades): a one-off purchase that raises the population ceiling and
+   * takes effect next turn. Costs are flat so a player who falls behind can still afford them.
+   */
+  civ: [
+    { name: 'Hamlet', popCap: 900, cost: {} },
+    { name: 'Village', popCap: 20_000, cost: { gold: 40, stone: 20 } },
+    { name: 'Town', popCap: 500_000, cost: { gold: 150, stone: 60, earth: 15 } },
+    { name: 'City', popCap: 10_000_000, cost: { gold: 500, stone: 200, light: 20, earth: 30 } },
+  ] as { name: string; popCap: number; cost: Cost }[],
 
   territory: {
     /** You start owning the capital and its ring. */

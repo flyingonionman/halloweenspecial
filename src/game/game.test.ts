@@ -36,6 +36,11 @@ import {
   callMuster,
   moraleMult,
   effectiveYields,
+  foodDemand,
+  foodSurplus,
+  popCap,
+  civBlock,
+  upgradeCiv,
   musterSize,
   birthContext,
   isUnlocked,
@@ -505,8 +510,8 @@ describe('turns & deeds', () => {
     const after = recruit(s, c.unit.uid)
     expect(after.morale).toBe(s.morale - c.price)
     expect(moraleMult(CONFIG.morale.max)).toBeGreaterThan(moraleMult(0))
-    const rich = effectiveYields({ map: s.map, morale: CONFIG.morale.max, troop: [] })
-    const poor = effectiveYields({ map: s.map, morale: 0, troop: [] })
+    const rich = effectiveYields({ ...s, morale: CONFIG.morale.max, troop: [] })
+    const poor = effectiveYields({ ...s, morale: 0, troop: [] })
     expect(rich.gold).toBeGreaterThan(poor.gold)
   })
 
@@ -598,5 +603,44 @@ describe('full runs', () => {
 
   it('is reproducible from a seed', () => {
     expect(play(77, 'human', 'synergy')).toEqual(play(77, 'human', 'synergy'))
+  })
+})
+
+describe('food upkeep & civilization levels', () => {
+  it('the starting city is fed and grows', () => {
+    const s = started(4)
+    expect(foodSurplus(s)).toBeGreaterThanOrEqual(0)
+  })
+
+  it('food demand grows slower than the crowd', () => {
+    expect(foodDemand(1_000_000)).toBeLessThan(foodDemand(100) * 100)
+    expect(foodDemand(1_000_000)).toBeGreaterThan(foodDemand(100))
+  })
+
+  it('famine stops growth and costs morale, but nobody dies', () => {
+    const s = { ...started(4), population: 1_000_000 }
+    expect(foodSurplus(s)).toBeLessThan(0)
+    const next = endTurn(s)
+    expect(next.population).toBe(s.population)
+    expect(next.morale).toBeLessThan(s.morale + CONFIG.morale.regen)
+  })
+
+  it('population stops at the ceiling; an upgrade lifts it next turn', () => {
+    let s = started(4)
+    s = { ...s, population: popCap(s), stock: { ...s.stock, gold: 999, stone: 999 } }
+    expect(civBlock(s)).toBeNull()
+    s = upgradeCiv(s)
+    expect(civBlock(s)).toBe('busy')
+    expect(s.civLevel).toBe(0)
+    const next = endTurn(s)
+    expect(next.civLevel).toBe(1)
+    expect(next.population).toBe(CONFIG.civ[0]!.popCap)
+    expect(popCap(next)).toBe(CONFIG.civ[1]!.popCap)
+  })
+
+  it('an upgrade needs the resources', () => {
+    const s = { ...started(4), stock: { ...started(4).stock, gold: 0 } }
+    expect(civBlock(s)).toBe('missing')
+    expect(upgradeCiv(s)).toBe(s)
   })
 })
