@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
   AFFINITY_DEFS,
   AFFINITY_LABEL,
@@ -37,7 +37,6 @@ import {
   routeCost,
   openRoute,
   closeRoute,
-  canUpgradeBuilding,
   city,
   civTier,
   claimBlock,
@@ -73,12 +72,12 @@ import {
 } from '../../game'
 import { useGame } from '../useGame'
 import { Board3D, type TileOverlay, type TilePreview } from '../board/Board3D'
-import { BuildPanel } from '../board/BuildPanel'
+import { BuildPanel, SECTIONS } from '../board/BuildPanel'
 import { ArmyPanel } from '../components/TroopPanel'
 import { AcademyPanel } from '../components/AcademyPanel'
 import { deny, showToast, useRequirementCheck } from '../toast'
 import { BuildingGlyph, CostChips } from '../components/BuildingBits'
-import { fmtOutputs, outputParts, outputScore } from '../format'
+import { fmtOutputs, outputParts } from '../format'
 import { AFFINITY_COLOR, AFFINITY_GLYPH, KIND_COLOR, PLAIN_COLOR, RARITY_COLOR, RESOURCE_COLOR, RESOURCE_GLYPH, TERRAIN_COLOR, fmtPop } from '../theme'
 
 // ── Map lenses (the eye toggle) ───────────────────────────────────────
@@ -649,6 +648,8 @@ const RAID_REASON = {
 
 function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | null) => void }) {
   const [s, dispatch] = useGame()
+  const check = useRequirementCheck()
+  const [razing, setRazing] = useState<string | null>(null)
   if (!hex) return <p className="empty pad">Select a tile on the board. Drag to pan, scroll to zoom, right-drag to rotate.</p>
   const t = tileAt(s.map, hex)!
   const td = TERRAIN_DEFS[t.terrain]
@@ -659,17 +660,15 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
 
   return (
     <div className="tile-panel">
+      <button className="btn btn-small btn-ghost tile-back" onClick={() => onSelect(null)}>
+        ← All buildings
+      </button>
       <header className="tile-head" style={{ '--terrain': TERRAIN_COLOR[t.terrain] } as React.CSSProperties} data-help={def ? `building:${def.id}` : `terrain:${t.terrain}`}>
         <span className="tile-swatch" />
         <div>
           <h3>{def ? buildingName(def.id, t.building!.level) : td.label}</h3>
           <p>
             {td.label} · yields {RESOURCE_LABEL[td.resource]}
-            {td.affinity && (
-              <>
-                {' '}· breeds <span style={{ color: AFFINITY_COLOR[td.affinity] }}>{AFFINITY_LABEL[td.affinity]}</span>
-              </>
-            )}
           </p>
         </div>
         <span className={`tile-status ${t.owned ? 'owned' : isFrontier ? 'frontier' : ''}`}>{t.owned ? 'yours' : isFrontier ? 'border' : 'wild'}</span>
@@ -699,7 +698,7 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
                 Level {t.building!.level}/{def.maxLevel}
               </span>
               {t.building!.level < def.maxLevel && (
-                <button className="btn btn-small" disabled={!canUpgradeBuilding(s, t)} onClick={() => dispatch((st) => upgradeBuilding(st, t))}>
+                <button className="btn btn-small" onClick={(e) => check(e.currentTarget, def.cost(t.building!.level + 1)) && dispatch((st) => upgradeBuilding(st, t))}>
                   {def.levelNames ? `Upgrade to ${buildingName(def.id, t.building!.level + 1)}` : `Raise to Lv${t.building!.level + 1}`}{' '}
                   <CostChips cost={def.cost(t.building!.level + 1)} />
                 </button>
@@ -707,11 +706,11 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
             </div>
           )}
           <button
-            className="btn btn-small btn-ghost"
+            className={`btn btn-small ${razing === hexKey(t) ? 'btn-war' : 'btn-ghost'}`}
             data-help="demolish"
-            onClick={() => confirm(`Demolish ${def.name}? You get back half its cost.`) && dispatch((st) => demolish(st, t))}
+            onClick={() => (razing === hexKey(t) ? (setRazing(null), dispatch((st) => demolish(st, t))) : setRazing(hexKey(t)))}
           >
-            Demolish <CostChips cost={demolishRefund(s, t)} />
+            {razing === hexKey(t) ? 'Click again to demolish' : 'Demolish'} <CostChips cost={demolishRefund(s, t)} />
           </button>
         </div>
       )}
@@ -726,20 +725,19 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
         <div className="tile-actions">
           {isFrontier ? (
             (() => {
-              const gold = claimBlock(s, t, 'gold')
-              const earth = claimBlock(s, t, 'earth')
-              const block = gold && earth ? (gold === 'gold' ? earth : gold) : null
+              const block = claimBlock(s, t, 'gold')
+              const hard = block === 'gold' ? null : block
               return (
                 <>
                   <div className="row">
-                    <button className="btn btn-primary" data-help="claim" disabled={!!gold} onClick={() => dispatch((st) => claimTile(st, t, 'gold'))}>
+                    <button className="btn btn-primary" data-help="claim" disabled={!!hard} onClick={(e) => check(e.currentTarget, { gold: claimCost(s) }) && dispatch((st) => claimTile(st, t, 'gold'))}>
                       Claim · <b className="gold">{claimCost(s)}</b> gold
                     </button>
-                    <button className="btn" data-help="resource:earth" disabled={!!earth} onClick={() => dispatch((st) => claimTile(st, t, 'earth'))}>
+                    <button className="btn" data-help="resource:earth" disabled={!!hard} onClick={(e) => check(e.currentTarget, { earth: claimEarthCost(s) }) && dispatch((st) => claimTile(st, t, 'earth'))}>
                       Claim · <CostChips cost={{ earth: claimEarthCost(s) }} />
                     </button>
                   </div>
-                  {block && <p className="muted">{CLAIM_REASON[block]}</p>}
+                  {hard && <p className="muted">{CLAIM_REASON[hard]}</p>}
                 </>
               )
             })()
@@ -782,9 +780,6 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
           })()}
         </div>
       )}
-      <button className="btn btn-small btn-ghost close" onClick={() => onSelect(null)}>
-        ← All buildings
-      </button>
     </div>
   )
 }
@@ -794,31 +789,40 @@ const NOT_HERE: Partial<Record<NonNullable<BuildBlock>, (b: BuildingDef) => stri
   unique: () => 'already built',
 }
 
-/** Every building: what fits this tile first (by what it would make here), then the rest and why not. */
+/** Every building, in the Build tab's order; what can't go here is greyed out with the reason. */
 function BuildOptions({ hex }: { hex: Hex }) {
   const [s, dispatch] = useGame()
   const check = useRequirementCheck()
-  const options = BUILDINGS.map((b) => ({ b, block: buildBlock(s, hex, b.id), out: evaluateBuilding(s.map, hex, b.id).output }))
-    .map((o) => ({ ...o, fits: o.block === null || o.block === 'cost' }))
-    .sort((x, y) => Number(y.fits) - Number(x.fits) || outputScore(y.out) - outputScore(x.out))
   return (
     <div className="build-options">
       <span className="label" data-help="adjacency">
         Build here
       </span>
-      {options.map(({ b, block, out, fits }) => (
-        <button
-          key={b.id}
-          className={`build-opt ${block === 'cost' ? 'poor' : ''}`}
-          disabled={!fits}
-          onClick={(e) => check(e.currentTarget, buildCost(s, b.id)) && dispatch((st) => placeBuilding(st, hex, b.id))}
-        >
-          <span className="bo-name">
-            <BuildingGlyph def={b} /> {b.name}
-          </span>
-          <span className="bo-out">{fits ? outputParts(out).map((p) => p.text).join(' · ') || '—' : NOT_HERE[block!]?.(b)}</span>
-          {fits && <CostChips cost={buildCost(s, b.id)} />}
-        </button>
+      {SECTIONS.map((sec) => (
+        <Fragment key={sec.kind}>
+          <h4 className="bp-tier" data-help={`kind:${sec.kind}`}>
+            {sec.label}
+          </h4>
+          {BUILDINGS.filter((b) => b.kind === sec.kind).map((b) => {
+            const block = buildBlock(s, hex, b.id)
+            const fits = block === null || block === 'cost'
+            const out = evaluateBuilding(s.map, hex, b.id).output
+            return (
+              <button
+                key={b.id}
+                className={`build-opt ${block === 'cost' ? 'poor' : ''}`}
+                disabled={!fits}
+                onClick={(e) => check(e.currentTarget, buildCost(s, b.id)) && dispatch((st) => placeBuilding(st, hex, b.id))}
+              >
+                <span className="bo-name">
+                  <BuildingGlyph def={b} /> {b.name}
+                </span>
+                <span className="bo-out">{fits ? outputParts(out).map((p) => p.text).join(' · ') || '—' : NOT_HERE[block!]?.(b)}</span>
+                <CostChips cost={buildCost(s, b.id)} />
+              </button>
+            )
+          })}
+        </Fragment>
       ))}
     </div>
   )
