@@ -28,6 +28,9 @@ import {
   commitAcademy,
   troopSize,
   upgradeBuilding,
+  upgradeCiv,
+  foodSurplus,
+  popCap,
   upgradeUnit,
   raidCamp,
 
@@ -83,9 +86,14 @@ export function playTurn(s: GameState, style: BotStyle, mem: BotMemory): GameSta
 
   // 2. Mines, farms and fisheries on bare tiles — cheap, always good.
   for (const t of bare()) {
-    const id: BuildingId = t.terrain === 'plains' ? 'farm' : t.terrain === 'lake' ? 'fishery' : 'mine'
+    const hungry = foodSurplus(s) < 3 && !buildBlock(s, t, 'farm')
+    const id: BuildingId = t.terrain === 'plains' || hungry ? 'farm' : t.terrain === 'lake' ? 'fishery' : 'mine'
     if (!buildBlock(s, t, id)) s = placeBuilding(s, t, id)
   }
+  // Keep the people fed, and raise the ceiling once they crowd it.
+  for (const t of ownedTiles(s.map))
+    if ((t.building?.id === 'farm' || t.building?.id === 'fishery') && foodSurplus(s) < 3 && canUpgradeBuilding(s, t)) s = upgradeBuilding(s, t)
+  if (s.population > popCap(s) * 0.7) s = upgradeCiv(s)
 
   // 3. Grow the mines a little, then the strategy buildings.
   for (const t of ownedTiles(s.map)) if (t.building?.id === 'mine' && canUpgradeBuilding(s, t) && s.stock.gold > 20) s = upgradeBuilding(s, t)

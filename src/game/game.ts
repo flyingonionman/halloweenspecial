@@ -73,6 +73,10 @@ export interface GameState {
   turn: number
   species: SpeciesId | null
   population: number
+  /** Index into CONFIG.civ: the population ceiling. */
+  civLevel: number
+  /** A civ upgrade bought this turn; lands when the turn ends. */
+  civPending?: number
   stock: Stock
   /** 0–CONFIG.morale.max. */
   morale: number
@@ -156,7 +160,7 @@ export function moraleMult(morale: number): number {
   return m.outputAtZero + (m.outputAtMax - m.outputAtZero) * (morale / m.max)
 }
 
-type EconView = Pick<GameState, 'map' | 'morale' | 'troop'> & Partial<Pick<GameState, 'boons' | 'omens' | 'round'>>
+type EconView = Pick<GameState, 'map' | 'morale' | 'troop' | 'population' | 'civLevel'> & Partial<Pick<GameState, 'boons' | 'omens' | 'round'>>
 
 /** This round's omen, if any. */
 export const activeOmen = (s: Partial<Pick<GameState, 'omens' | 'round'>>): OmenId | null => s.omens?.[s.round ?? -1] ?? null
@@ -184,11 +188,42 @@ export function moraleRegen(s: EconView): number {
   return CONFIG.morale.regen + troopEconomy(s.troop, city(s).affinityLevels).morale + (omen === 'pilgrims' ? 3 : 0)
 }
 
-/** Fractional population growth this turn, driven by (morale-adjusted) food. */
+/** Food the population eats each turn. */
+export const foodDemand = (population: number) => Math.ceil(Math.pow(population, CONFIG.economy.foodDemandExp))
+
+/** Food left after feeding everyone; negative is famine. */
+export const foodSurplus = (s: EconView) => effectiveYields(s).food - foodDemand(s.population)
+
+/** Most people the city can hold at its civilization level. */
+export const popCap = (s: Pick<GameState, 'civLevel'>) => CONFIG.civ[s.civLevel]!.popCap
+
+/** Fractional population growth this turn, driven by (morale-adjusted) food left over after feeding everyone. */
 export function growthRate(s: EconView): number {
   const { growthBase, growthPerFood, maxGrowth } = CONFIG.economy
-  const rate = Math.min(maxGrowth, growthBase + growthPerFood * effectiveYields(s).food)
+  const surplus = foodSurplus(s)
+  if (surplus < 0 || s.population >= popCap(s)) return 0
+  const rate = Math.min(maxGrowth, growthBase + growthPerFood * surplus)
   return activeOmen(s) === 'plague' ? rate / 2 : rate
+}
+
+export type CivBlock = 'busy' | 'max' | 'missing' | null
+
+/** Why the next civilization level can't be bought right now (a `missing` block means short of resources). */
+export function civBlock(s: GameState): CivBlock {
+  if (s.civPending != null) return 'busy'
+  if (s.civLevel >= CONFIG.civ.length - 1) return 'max'
+  return canAfford(s, CONFIG.civ[s.civLevel + 1]!.cost) ? null : 'missing'
+}
+
+/** Buy the next civilization level; the higher ceiling applies from next turn. */
+export function upgradeCiv(state: GameState): GameState {
+  if (state.phase !== 'turn' || civBlock(state)) return state
+  return produce(state, (s) => {
+    const next = s.civLevel + 1
+    pay(s, CONFIG.civ[next]!.cost)
+    s.civPending = next
+    log(s, `Work begins on the ${CONFIG.civ[next]!.name}.`)
+  })
 }
 
 export function birthContext(s: GameState): BirthContext {
@@ -209,6 +244,7 @@ export function newGame(seed: number = Date.now() >>> 0): GameState {
     turn: 0,
     species: null,
     population: CONFIG.start.population,
+    civLevel: 0,
     stock: emptyStock(),
     morale: CONFIG.morale.start,
     map,
@@ -937,14 +973,22 @@ export function endTurn(state: GameState): GameState {
       const { per, max } = CONFIG.economy.interest
       s.stock.gold += Math.min(max, Math.floor(s.stock.gold / per))
     }
-    s.population = Math.round(s.population * (1 + growthRate(s)))
+    const starving = foodSurplus(s) < 0
+    // The ceiling only stops growth; it never shrinks a population an event pushed past it.
+    s.population = Math.max(s.population, Math.min(popCap(s), Math.round(s.population * (1 + growthRate(s)))))
+    if (s.civPending != null) {
+      s.civLevel = s.civPending
+      delete s.civPending
+      log(s, `${s.civLevel === CONFIG.civ.length - 1 ? 'The city is' : 'The settlement is'} now a ${CONFIG.civ[s.civLevel]!.name}.`)
+    }
+    if (starving) log(s, 'Famine: the granaries are short. Growth stops and spirits fall.')
     s.boons = (s.boons ?? []).map((b) => ({ ...b, turns: b.turns - 1 })).filter((b) => b.turns > 0)
     for (const t of s.map.tiles)
       if (t.siteLeaving) {
         delete t.site
         delete t.siteLeaving
       }
-    s.morale = clampMorale(s.morale + moraleRegen(s))
+    s.morale = clampMorale(s.morale + moraleRegen(s) - (starving ? CONFIG.economy.famineMorale : 0))
     if (activeOmen(s) === 'comet' && ctx.rng.chance(0.1)) {
       const burnable = owned(s).filter((t) => t.terrain === 'volcanic' && t.building && t.building.id !== 'capital')
       if (burnable.length) {

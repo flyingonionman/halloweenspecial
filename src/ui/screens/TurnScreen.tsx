@@ -45,9 +45,13 @@ import {
   demolish,
   demolishRefund,
   effectiveYields,
+  civBlock,
   evaluateBuilding,
+  foodDemand,
   frontier,
   growthRate,
+  popCap,
+  upgradeCiv,
   hexKey,
   moraleMult,
   moraleRegen,
@@ -308,16 +312,22 @@ function GrowthExplainer() {
   const [s] = useGame()
   const e = CONFIG.economy
   const food = effectiveYields(s).food
+  const demand = foodDemand(s.population)
+  const surplus = food - demand
   const g = growthRate(s)
   const tp = tierProgress(s.population)
   const turns = tp.next && g > 0 ? Math.ceil(Math.log(tp.nextAt! / s.population) / Math.log(1 + g)) : null
   const pct = (v: number) => `${Math.round(v * 100)}%`
   return (
     <div className="growth-explainer" data-help="growth">
+      <p data-help="food-upkeep">
+        Your people eat <b className="mono">{demand}</b> food; you make <b className="mono">{food}</b>.{' '}
+        {surplus < 0 ? <b className="famine">Famine: growth stops and morale falls.</b> : <>Surplus <b className="mono">{surplus}</b>.</>}
+      </p>
       <p>
-        Grows every turn: <b className="mono">{pct(e.growthBase)}</b> + <b className="mono">{pct(e.growthPerFood)}</b> × <b className="mono">{food}</b> food ={' '}
+        Grows every turn: <b className="mono">{pct(e.growthBase)}</b> + <b className="mono">{pct(e.growthPerFood)}</b> × <b className="mono">{Math.max(0, surplus)}</b> spare food ={' '}
         <b className="mono">+{pct(g)}</b>
-        {activeOmen(s) === 'plague' ? <small> (halved by the Plague Year)</small> : g >= e.maxGrowth && <small> (capped)</small>}
+        {s.population >= popCap(s) ? <small> (at the {CONFIG.civ[s.civLevel]!.name}’s limit)</small> : activeOmen(s) === 'plague' ? <small> (halved by the Plague Year)</small> : g >= e.maxGrowth && <small> (capped)</small>}
       </p>
       {turns !== null && (
         <p>
@@ -506,6 +516,35 @@ const CLAIM_REASON = {
   gold: 'Not enough gold.',
   earth: 'Not enough mud.',
 } as const
+
+/** The capital's tile: the civilization level, which sets how many people the city can hold. */
+function CapitalBox() {
+  const [s, dispatch] = useGame()
+  const check = useRequirementCheck()
+  const level = CONFIG.civ[s.civLevel]!
+  const next = CONFIG.civ[s.civLevel + 1]
+  const pending = s.civPending != null ? CONFIG.civ[s.civPending]! : null
+  const block = civBlock(s)
+  return (
+    <div className="trade-box">
+      <span className="label" data-help="civ-level">
+        {level.name} · {fmtPop(s.population)} / {fmtPop(level.popCap)} people
+      </span>
+      <p className="muted">
+        Food: {effectiveYields(s).food} made, {foodDemand(s.population)} eaten.
+      </p>
+      {pending ? (
+        <p className="muted">The {pending.name} is being raised; it takes hold when the turn ends.</p>
+      ) : next ? (
+        <button className="btn btn-small" onClick={(e) => check(e.currentTarget, next.cost) && dispatch((st) => upgradeCiv(st))} disabled={block === 'busy'}>
+          Raise a {next.name} (holds {fmtPop(next.popCap)}) <CostChips cost={next.cost} />
+        </button>
+      ) : (
+        <p className="muted">The greatest city your people can build.</p>
+      )}
+    </div>
+  )
+}
 
 /**
  * Opened from the Trading Post's tile. Like an academy, trade is committed
@@ -715,6 +754,7 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
         </div>
       )}
 
+      {t.owned && def?.id === 'capital' && <CapitalBox />}
       {t.owned && def?.id === 'academy' && <AcademyPanel hex={t} />}
       {t.owned && def?.id === 'trading-post' && <TradeBox />}
       {t.owned && def?.id === 'church' && <OfferBox />}
