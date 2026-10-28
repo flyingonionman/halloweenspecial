@@ -138,6 +138,7 @@ export function TurnScreen() {
   const [selected, setSelected] = useState<Hex | null>(null)
   const [armed, setArmed] = useState<BuildingId | null>(null)
   const [tab, setTab] = useState<RightTab>('army')
+  const [full, setFull] = useState(false) // right-click: tile panel over the whole map
 
   const frontierKeys = useMemo(() => new Set(frontier(s.map).map(hexKey)), [s.map])
   const check = useRequirementCheck()
@@ -158,7 +159,7 @@ export function TurnScreen() {
   const overlays = useMemo(() => lensOverlays(s, lens), [s, lens])
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setArmed(null)
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && (setArmed(null), setFull(false))
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
@@ -176,6 +177,22 @@ export function TurnScreen() {
     }
     setSelected(h)
     if (h) setTab('land')
+  }
+
+  const info = (h: Hex): string[] => {
+    const t = tileAt(s.map, h)
+    if (!t) return []
+    const td = TERRAIN_DEFS[t.terrain]
+    const lines = [`${td.label} · ${RESOURCE_LABEL[td.resource]}`]
+    if (t.building) {
+      const def = BUILDING_DEFS[t.building.id]
+      if (def.maxLevel > 1) lines.push(`Level ${t.building.level}/${def.maxLevel}`)
+    }
+    if (t.owned) lines.push(`Makes ${fmtOutputs(city(s).tiles[hexKey(t)]!.output) || 'nothing'}`)
+    else if (t.camp) lines.push(`Camp, about ${CONFIG.camps.sizeByStrength[t.camp.strength]} defenders`)
+    else lines.push(frontierKeys.has(hexKey(t)) ? `Border: claim for ${claimCost(s)} gold` : 'Wild land')
+    lines.push('Right-click: full view')
+    return lines
   }
 
   // "Unused" dots: something on that tab can be done right now. A nudge, not a to-do list.
@@ -198,7 +215,7 @@ export function TurnScreen() {
   return (
     <div className="turn">
       <section className="board-wrap">
-        <Board3D map={s.map} selected={selected} frontier={frontierKeys} previews={previews} overlays={overlays} onSelect={onSelect} />
+        <Board3D map={s.map} selected={selected} frontier={frontierKeys} previews={previews} overlays={overlays} onSelect={onSelect} info={info} onInspect={(h) => (onSelect(h), setFull(true))} />
         <button
           className={`lens-toggle ${lens !== 'normal' ? 'on' : ''}`}
           onClick={() => setLens(LENSES[(LENSES.indexOf(lens) + 1) % LENSES.length]!)}
@@ -216,6 +233,12 @@ export function TurnScreen() {
         {armed && (
           <div className="armed-hint">
             Placing <b>{BUILDING_DEFS[armed].name}</b>. Click a highlighted tile. <kbd>Esc</kbd> to cancel.
+          </div>
+        )}
+        {full && selected && (
+          <div className="tile-full" onContextMenu={(e) => e.preventDefault()}>
+            <button className="tile-full-x" onClick={() => setFull(false)} aria-label="Close (Esc)">✕</button>
+            <TilePanel hex={selected} onSelect={() => setFull(false)} back="← Back to map" />
           </div>
         )}
       </section>
@@ -685,7 +708,7 @@ const RAID_REASON = {
   'no-troop': 'You need a troop to raid.',
 } as const
 
-function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | null) => void }) {
+function TilePanel({ hex, onSelect, back = '← All buildings' }: { hex: Hex | null; onSelect: (h: Hex | null) => void; back?: string }) {
   const [s, dispatch] = useGame()
   const check = useRequirementCheck()
   const [razing, setRazing] = useState<string | null>(null)
@@ -700,7 +723,7 @@ function TilePanel({ hex, onSelect }: { hex: Hex | null; onSelect: (h: Hex | nul
   return (
     <div className="tile-panel">
       <button className="btn btn-small btn-ghost tile-back" onClick={() => onSelect(null)}>
-        ← All buildings
+        {back}
       </button>
       <header className="tile-head" style={{ '--terrain': TERRAIN_COLOR[t.terrain] } as React.CSSProperties} data-help={def ? `building:${def.id}` : `terrain:${t.terrain}`}>
         <span className="tile-swatch" />

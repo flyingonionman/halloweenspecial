@@ -62,6 +62,10 @@ interface Props {
   /** Map lens (resources / buildings): overlay per tile key; null for the normal view. */
   overlays?: Record<string, TileOverlay> | null;
   onSelect: (h: Hex | null) => void;
+  /** Right-click a tile. */
+  onInspect?: (h: Hex) => void;
+  /** Extra lines for the hover card (only asked for the hovered tile). */
+  info?: (h: Hex) => string[];
 }
 
 /** The board is flat: every tile's top sits at the same height. Relief comes from the surface textures. */
@@ -711,6 +715,8 @@ function Tiles({
   previews,
   overlays,
   onSelect,
+  onInspect,
+  info,
 }: Props) {
   const [hover, setHover] = useState<string | null>(null);
   const surfaces = useSurfaces();
@@ -752,6 +758,8 @@ function Tiles({
             }
             onHover={(on) => setHover(on ? k : (h) => (h === k ? null : h))}
             onSelect={onSelect}
+            onInspect={onInspect}
+            info={info}
             surfaces={surfaces}
           />
         );
@@ -906,6 +914,8 @@ interface TileProps {
   dimmed: boolean;
   onHover: (on: boolean) => void;
   onSelect: (h: Hex) => void;
+  onInspect?: (h: Hex) => void;
+  info?: (h: Hex) => string[];
   surfaces: Surfaces;
   /** Lakes: one "1"/"0" per HEX_DIRS edge, "1" where it meets land. */
   shore?: string;
@@ -924,6 +934,8 @@ const TileMesh = function TileMesh({
   dimmed,
   onHover,
   onSelect,
+  onInspect,
+  info,
   surfaces,
   shore,
 }: TileProps) {
@@ -1009,6 +1021,13 @@ const TileMesh = function TileMesh({
     onSelect({ q: tile.q, r: tile.r });
   };
 
+  const inspect = (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation();
+    e.nativeEvent.preventDefault();
+    if (e.delta > 6) return; // right-drag rotates the camera
+    onInspect?.({ q: tile.q, r: tile.r });
+  };
+
   const hoverName = tile.camp
     ? tile.camp.name
     : tile.site
@@ -1027,6 +1046,7 @@ const TileMesh = function TileMesh({
           castShadow
           receiveShadow
           onClick={click}
+          onContextMenu={inspect}
           onPointerOver={(e) => {
             e.stopPropagation();
             onHover(true);
@@ -1147,7 +1167,12 @@ const TileMesh = function TileMesh({
                 distanceFactor={11}
                 style={{ pointerEvents: "none" }}
               >
-                <div className="board-label name">{hoverName}</div>
+                <div className="board-label name">
+                  {hoverName}
+                  {info?.({ q: tile.q, r: tile.r }).map((l, i) => (
+                    <small key={i}>{l}</small>
+                  ))}
+                </div>
               </Html>
             )
           )}
