@@ -29,8 +29,6 @@ export type Material = (typeof MATERIALS)[number]
 export type Stock = Record<StockResource, number>
 export type Cost = Partial<Record<StockResource, number>>
 
-export const isElement = (r: string): r is ElementId => (ELEMENTS as readonly string[]).includes(r)
-
 export const RESOURCE_LABEL: Record<ResourceId, string> = {
   gold: 'Gold',
   food: 'Food',

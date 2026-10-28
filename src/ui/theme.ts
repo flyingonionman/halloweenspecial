@@ -1,5 +1,5 @@
 /** Colors shared by the DOM UI and the WebGL scenes. Keep in sync with styles.css tokens. */
-import type { Affinity, BuildingKind, Rarity, ResourceId, Team, TerrainId, UnitType } from '../game'
+import type { Affinity, BuildingKind, Rarity, ResourceId, TerrainId, UnitType } from '../game'
 
 export const TERRAIN_COLOR: Record<TerrainId, string> = {
   plains: '#9aa65a',
@@ -112,11 +112,6 @@ export const RARITY_COLOR: Record<Rarity, string> = {
   rare: '#5e9be0',
   epic: '#b57be8',
   legendary: '#f0b43c',
-}
-
-export const TEAM_COLOR: Record<Team, string> = {
-  0: '#efe4cc',
-  1: '#c43c3c',
 }
 
 export const TYPE_GLYPH: Record<UnitType, string> = {

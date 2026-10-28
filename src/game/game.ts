@@ -18,7 +18,6 @@ import { birthCitizens, musterSize, rollCitizen, type BirthContext, type Citizen
 import { SITES, SITE_DEFS, possibleEffects, type SiteEffect } from './sites'
 import { OMEN_IDS, type OmenId } from './omens'
 import { simulateCombat, type CombatResult } from './combat/sim'
-import { campLoot } from './deeds'
 import { SPECIES, speciesMods, type SpeciesId } from './species'
 import { createUnit, releaseRefund, upgradeCost, type Unit } from './units/unit'
 import { AFFINITIES, AFFINITY_DEFS, AFFINITY_LABEL, academyFlow, affinitiesOfTier, childrenOf, researchCost, type Affinity } from './affinities'
@@ -137,7 +136,11 @@ const log = (s: GameState, text: string) => {
   if (s.log.length > 40) s.log.splice(0, s.log.length - 40)
 }
 
-export const absTurn = (s: Pick<GameState, 'round' | 'turn'>) => s.round * CONFIG.turnsPerRound + s.turn
+/** Camp loot: what razing a camp pays, by strength and round. */
+export function campLoot(strength: number, round: number) {
+  const c = CONFIG.rewards.camp
+  return { gold: c.base + c.perStrength * strength + c.perRound * round, resource: c.resPerStrength * strength }
+}
 export const isLastTurn = (s: GameState) => s.turn >= CONFIG.turnsPerRound - 1
 export const troopSize = (s: GameState) => CONFIG.troopSize + (speciesMods(s.species).troopSizeDelta ?? 0)
 export const unitUpgradeCost = (s: GameState, u: Unit) => upgradeCost(u, speciesMods(s.species).upgradeCostMult ?? 1)
