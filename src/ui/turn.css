@@ -934,3 +934,32 @@ kbd {
     border-top: 1px solid var(--line);
   }
 }
+
+/* hover card: extra lines under the tile name */
+.board-label.name small {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--bone);
+  opacity: 0.8;
+}
+
+/* right-click: the tile panel fills the board; X or Esc goes back to the map */
+.tile-full {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  overflow: auto;
+  padding: 24px max(24px, 15%);
+  background: rgba(10, 8, 7, 0.96);
+}
+
+.tile-full-x {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  font-size: 20px;
+  background: none;
+  border: 0;
+  color: var(--bone);
+}
