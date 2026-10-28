@@ -1,7 +1,7 @@
 import { CONFIG, RESOURCE_LABEL, finishBattle, type Material } from '../../game'
 import { useGame } from '../useGame'
 import { BattleView } from '../battle/BattleView'
-import { UnitCard } from '../components/UnitCard'
+import { FigureCard } from '../components/FigureCard'
 
 export function BattleScreen() {
   const [s, dispatch] = useGame()
@@ -37,7 +37,7 @@ export function BattleScreen() {
                 </h3>
                 <div className="fallen-list">
                   {outcome.fallen.map((u) => (
-                    <UnitCard key={u.uid} unit={u} compact dim={!outcome.fallenReturn} />
+                    <FigureCard key={u.uid} unit={u} corner={`Lv${u.level}`} dim={!outcome.fallenReturn} />
                   ))}
                 </div>
               </div>

@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, useGLTF, useTexture } from '@react-three/drei'
 import * as THREE from 'three'
-import { CONFIG, FLAG, RARITIES, TYPE_DEFS, UNIT_TYPES, arena, eventsUntil, isRanged, primaryAffinity, type AffinityPoints, type CombatResult, type UnitType } from '../../game'
+import { CONFIG, FLAG, RARITIES, UNIT_TYPES, arena, eventsUntil, isRanged, primaryAffinity, type AffinityPoints, type CombatResult, type UnitType } from '../../game'
 import { RARITY_COLOR, unitColor } from '../theme'
 import { CELL, TPS, actionAt, buildTimeline, frameAt, poseAt, type Timeline } from './playback'
 import { MODEL_URL, TEAM_HUE, armRig, dressModel, poseArms, skinOf, type ArmRig } from './models'
@@ -633,5 +633,3 @@ function lerpAngle(a: number, b: number, t: number) {
   while (d < -Math.PI) d += Math.PI * 2
   return a + d * t
 }
-
-export const typeLabel = (t: UnitType) => TYPE_DEFS[t].label

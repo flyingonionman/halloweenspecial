@@ -26,12 +26,3 @@ export const fmtOutputs = (o: Outputs) => outputParts(o).map((p) => p.text).join
 export function costParts(c: Cost): { key: ResourceId; amount: number }[] {
   return (Object.entries(c) as [ResourceId, number][]).filter(([, v]) => v > 0).map(([key, amount]) => ({ key, amount }))
 }
-
-/** A single comparable number for "how good is this spot", used to highlight the best placement. */
-export function outputScore(o: Outputs): number {
-  let s = 0
-  for (const r of RESOURCES) s += o[r] ?? 0
-  s += ((o.atkPct ?? 0) + (o.hpPct ?? 0) + (o.defPct ?? 0)) * 60
-  s += (o.trade ?? 0) * 2
-  return s
-}

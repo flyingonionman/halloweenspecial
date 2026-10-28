@@ -1,7 +1,7 @@
 import { civTier, ownedTiles } from '../../game'
 import { useGame, useStore } from '../useGame'
 import { RARITY_COLOR, fmtPop } from '../theme'
-import { UnitCard } from '../components/UnitCard'
+import { FigureCard } from '../components/FigureCard'
 
 export function OverScreen() {
   const [s] = useGame()
@@ -28,7 +28,7 @@ export function OverScreen() {
       {s.troop.length > 0 && (
         <div className="over-troop">
           {s.troop.map((u) => (
-            <UnitCard key={u.uid} unit={u} compact />
+            <FigureCard key={u.uid} unit={u} corner={`Lv${u.level}`} />
           ))}
         </div>
       )}
