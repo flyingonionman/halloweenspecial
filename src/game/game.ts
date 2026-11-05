@@ -30,6 +30,13 @@ import { RESOURCE_LABEL, TERRAIN_DEFS, emptyStock, type Cost, type Material, typ
 
 export type Phase = 'species' | 'turn' | 'battle' | 'over'
 
+/** The run's state machine: every legal phase change. Anything else is a bug. */
+const PHASE_NEXT: Record<Phase, Phase[]> = { species: ['turn'], turn: ['battle'], battle: ['turn', 'over'], over: [] }
+function go(s: { phase: Phase }, to: Phase) {
+  if (!PHASE_NEXT[s.phase].includes(to)) throw new Error(`Illegal phase change ${s.phase} -> ${to}`)
+  s.phase = to
+}
+
 export interface BattleOutcome {
   won: boolean
   draw: boolean
@@ -270,7 +277,7 @@ export function chooseSpecies(state: GameState, id: SpeciesId): GameState {
     s.stock.gold = CONFIG.start.gold
     s.stock.stone = CONFIG.start.stone
     // No muster yet: the player recruits (calls one) when they want citizens.
-    s.phase = 'turn'
+    go(s, 'turn')
     startRound(s, ctx)
     log(s, `The ${SPECIES[id].name} settle in ${TERRAIN_DEFS[s.map.homeBiome].label.toLowerCase()} country.`)
   })
@@ -796,7 +803,7 @@ export function raidCamp(state: GameState, h: Hex): GameState {
         claimed: won ? { q: h.q, r: h.r } : null,
       },
     }
-    s.phase = 'battle'
+    go(s, 'battle')
   })
 }
 
@@ -916,7 +923,7 @@ export function exploreSite(state: GameState, h: Hex, option: number): GameState
         recruit: won && reward.citizen ? siteCitizen(s, ctx, reward.citizen) : null,
       },
     }
-    s.phase = 'battle'
+    go(s, 'battle')
   })
 }
 
@@ -1037,7 +1044,7 @@ export function endTurn(state: GameState): GameState {
       result,
       outcome: { ...base, gold: base.won ? gBase + gPer * s.round : 0, morale: base.won ? CONFIG.morale.battleWin : 0, loot: {}, claimed: null },
     }
-    s.phase = 'battle'
+    go(s, 'battle')
   })
 }
 
@@ -1067,14 +1074,14 @@ export function finishBattle(state: GameState): GameState {
       if (outcome.won && outcome.recruit) enlistFree(s, outcome.recruit)
       const lootText = (Object.entries(outcome.loot) as [Material, number][]).map(([k, v]) => `+${v} ${RESOURCE_LABEL[k]}`)
       log(s, outcome.won ? `Razed ${name}: +${outcome.gold} gold${lootText.length ? ', ' + lootText.join(', ') : ''}.` : `Repelled at ${name}.`)
-      s.phase = 'turn'
+      go(s, 'turn')
       return
     }
 
     s.history.push({ round: s.round, won: outcome.won, opponent: name })
     // Each lost battle brings down a banner; the last banner falling (or the final battle) ends the run.
     if ((!outcome.won && bannersLeft(s) <= 0) || s.round >= CONFIG.rounds - 1) {
-      s.phase = 'over'
+      go(s, 'over')
       s.victory = outcome.won
       return
     }
@@ -1083,7 +1090,7 @@ export function finishBattle(state: GameState): GameState {
       log(s, `A banner falls and the hold is sacked (morale -${CONFIG.morale.sackLoss * 100}%). One banner remains.`)
     }
     s.round++
-    s.phase = 'turn'
+    go(s, 'turn')
     startRound(s, ctx)
   })
 }
