@@ -5,7 +5,7 @@
  *
  * Flow: pick a species → 5 rounds × (10 turns of city-building → 1 battle vs a ghost).
  * Each turn: build, claim, grow academies, trade, raid camps, and recruit: call a muster (morale), then enlist from it.
- * Round battles are sudden elimination: lose one and the run is over.
+ * Round battles: lose one and a banner falls (the city is sacked); lose them all and the run is over.
  *
  * Morale is both currency (calling musters, enlisting citizens) and productivity
  * (it scales every field's output), so recruiting hard weakens the economy.
@@ -1041,6 +1041,9 @@ export function endTurn(state: GameState): GameState {
   })
 }
 
+/** Banners left: a lost round battle brings one down. */
+export const bannersLeft = (s: GameState) => CONFIG.banners - s.history.filter((h) => !h.won).length
+
 /** Apply a battle's consequences and return to the city (or end the run). */
 export function finishBattle(state: GameState): GameState {
   if (state.phase !== 'battle' || !state.battle) return state
@@ -1069,11 +1072,15 @@ export function finishBattle(state: GameState): GameState {
     }
 
     s.history.push({ round: s.round, won: outcome.won, opponent: name })
-    // Sudden elimination: any round battle you don't win ends the run.
-    if (!outcome.won || s.round >= CONFIG.rounds - 1) {
+    // Each lost battle brings down a banner; the last banner falling (or the final battle) ends the run.
+    if ((!outcome.won && bannersLeft(s) <= 0) || s.round >= CONFIG.rounds - 1) {
       s.phase = 'over'
       s.victory = outcome.won
       return
+    }
+    if (!outcome.won) {
+      s.morale = Math.round(s.morale * (1 - CONFIG.morale.sackLoss))
+      log(s, `A banner falls and the hold is sacked (morale -${CONFIG.morale.sackLoss * 100}%). One banner remains.`)
     }
     s.round++
     s.phase = 'turn'

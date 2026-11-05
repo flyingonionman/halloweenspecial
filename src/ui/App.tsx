@@ -2,6 +2,7 @@ import {
   CONFIG,
   RESOURCE_LABEL,
   STOCK_RESOURCES,
+  bannersLeft,
   canEndTurn,
   civTier,
   netYields,
@@ -226,6 +227,11 @@ function CornerMenu({ onScreen }: { onScreen: (s: Screen) => void }) {
               </li>
             ))}
           </ol>
+        )}
+        {s.phase !== 'species' && (
+          <span className="cm-banners" title="Banners: each lost battle brings one down. Lose the last and the run ends.">
+            {Array.from({ length: CONFIG.banners }, (_, i) => (i < bannersLeft(s) ? '⚑' : '⚐')).join(' ')}
+          </span>
         )}
       </div>
       {s.phase === 'turn' && (
