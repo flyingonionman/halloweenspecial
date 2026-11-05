@@ -411,7 +411,7 @@ export interface AcademyMove {
   level: number
 }
 
-export type AcademyBlock = 'no-academy' | 'pending' | 'locked' | 'cost' | 'flow' | null
+export type AcademyBlock = 'no-academy' | 'dormant' | 'pending' | 'locked' | 'cost' | 'flow' | null
 
 /** What an academy is committed to: its pending change if any, else what it teaches now (null if empty). */
 export function academyCommitment(b: PlacedBuilding): { affinity: Affinity; level: number } | null {
@@ -431,7 +431,7 @@ function upkeepOf(s: Partial<Pick<GameState, 'omens' | 'round'>>, affinity: Affi
 export function academyUpkeep(s: Pick<GameState, 'map'> & Partial<Pick<GameState, 'omens' | 'round'>>): Cost {
   const out: Cost = {}
   for (const t of owned(s)) {
-    const c = t.building?.id === 'academy' ? academyCommitment(t.building) : null
+    const c = t.building?.id === 'academy' && !t.building.dormant ? academyCommitment(t.building) : null
     if (c) for (const [k, v] of Object.entries(upkeepOf(s, c.affinity, c.level)) as [keyof Stock, number][]) out[k] = (out[k] ?? 0) + v
   }
   return out
@@ -476,6 +476,7 @@ export function academyMoveCost(s: GameState, h: Hex, m: AcademyMove): { upfront
 export function academyBlock(s: GameState, h: Hex, m: AcademyMove): AcademyBlock {
   const t = tileAt(s.map, h)
   if (t?.building?.id !== 'academy' || !t.owned) return 'no-academy'
+  if (t.building.dormant) return 'dormant'
   if (t.building.pending) return 'pending'
   if (m.kind === 'evolve' && !isUnlocked(m.affinity, city(s).affinityLevels)) return 'locked'
   const { upfront, extra } = academyMoveCost(s, h, m)
@@ -483,6 +484,25 @@ export function academyBlock(s: GameState, h: Hex, m: AcademyMove): AcademyBlock
   const net = netYields(s)
   if ((Object.entries(extra) as [keyof typeof net, number][]).some(([k, v]) => net[k] < v)) return 'flow'
   return null
+}
+
+/** What waking a dormant academy costs: its research cost again. */
+export function reviveCost(b: PlacedBuilding): Cost {
+  return b.dormant && b.affinity ? researchCost(b.affinity, b.level) : {}
+}
+
+/** Pay to wake a dormant academy; its upkeep resumes and it teaches again from now. */
+export function reviveAcademy(state: GameState, h: Hex): GameState {
+  const b = tileAt(state.map, h)?.building
+  if (state.phase !== 'turn' || b?.id !== 'academy' || !b.dormant || !canAfford(state, reviveCost(b))) return state
+  return produce(state, (s) => {
+    const nb = tileAt(s.map, h)!.building!
+    pay(s, reviveCost(nb))
+    nb.dormant = false
+    nb.starved = false
+    nb.starvedTurns = 0
+    log(s, `The ${AFFINITY_LABEL[nb.affinity!]} academy wakes.`)
+  })
 }
 
 /** Throughput you still need for a move (empty when your free income covers it). */
@@ -511,12 +531,17 @@ function runAcademies(s: GameState) {
     const b = t.building
     if (b?.id !== 'academy') continue
     const c = academyCommitment(b)
-    if (!c) continue
+    if (!c || b.dormant) continue
     const upkeep = upkeepOf(s, c.affinity, c.level)
     const starved = !canAfford(s, upkeep)
     if (!starved) pay(s, upkeep)
     if (starved && !b.starved) log(s, `The ${AFFINITY_LABEL[c.affinity]} academy is starved of essence and teaches nothing until its upkeep is paid.`)
     b.starved = starved
+    b.starvedTurns = starved ? (b.starvedTurns ?? 0) + 1 : 0
+    if (b.starvedTurns >= CONFIG.affinity.dormantAfter) {
+      b.dormant = true
+      log(s, `The ${AFFINITY_LABEL[c.affinity]} academy goes dormant. Pay its research cost again to wake it.`)
+    }
     if (b.pending) {
       b.affinity = b.pending.affinity
       b.level = b.pending.level

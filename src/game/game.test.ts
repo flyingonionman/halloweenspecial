@@ -49,6 +49,8 @@ import {
   academyFlow,
   academyMoves,
   commitAcademy,
+  reviveAcademy,
+  academyUpkeep,
   netYields,
   AFFINITY_DEFS,
   routeBlock,
@@ -303,6 +305,25 @@ describe('buildings & adjacency', () => {
     expect(city(s).affinityLevels.fire).toBe(0)
   })
 
+  it('a twice-starved academy goes dormant (no upkeep, no teaching) until it is paid for', () => {
+    let s = academyGame()
+    const a = ownedTiles(s.map).find((t) => !t.building)!
+    s = endTurn(commitAcademy(placeBuilding(s, a, 'academy'), a, { kind: 'dedicate', affinity: 'fire', level: 1 }))
+    const map = structuredClone(s.map)
+    for (const t of map.tiles) if (t.terrain === 'volcanic' && !t.building) t.terrain = 'steppe'
+    s = endTurn({ ...s, map, stock: { ...s.stock, fire: 0 } })
+    expect(tileAt(s.map, a)!.building!.dormant).toBeFalsy()
+    s = endTurn({ ...s, stock: { ...s.stock, fire: 0 } })
+    const b = tileAt(s.map, a)!.building!
+    expect(b.dormant).toBe(true)
+    expect(b.level).toBe(1)
+    expect(academyUpkeep(s)).toEqual({})
+    expect(city(s).affinityLevels.fire).toBe(0)
+    s = reviveAcademy({ ...s, stock: { ...s.stock, gold: 999, fire: 999 } }, a)
+    expect(tileAt(s.map, a)!.building!.dormant).toBe(false)
+    expect(city(s).affinityLevels.fire).toBe(1)
+  })
+
   it('placement respects terrain, ownership, uniqueness and cost', () => {
     let s = started(3)
     const plains = ownedTiles(s.map).find((t) => t.terrain === 'plains' && !t.building)
@@ -430,6 +451,18 @@ describe('combat', () => {
   })
 
   const fight = (a: string, b: string, seed = 1) => simulateCombat({ units: lineupUnits(parseLineup(a), 'a') }, { units: lineupUnits(parseLineup(b), 'b') }, seed)
+
+  it('rangers kite off adjacent enemies, no faster than the cooldown', () => {
+    const r = fight('ranger', 'fighter')
+    const ids = r.roster.filter((u) => u.type === 'ranger').map((u) => u.id)
+    const A = arena(r.arenaRadius)
+    const moves = r.events.filter((e) => e.kind === 'move' && ids.includes(e.id))
+    expect(moves.length).toBeGreaterThan(0)
+    // A kite step ends farther from the enemy than it began.
+    const enemy = (tick: number) => r.frames[tick]![1 * FRAME_STRIDE + F.cell]!
+    const kites = moves.filter((m) => m.kind === 'move' && cellDistance(A, m.from, enemy(m.t)) <= CONFIG.combat.kiteRange)
+    for (let i = 1; i < kites.length; i++) expect(kites[i]!.t - kites[i - 1]!.t).toBeGreaterThanOrEqual(CONFIG.combat.kiteCooldown)
+  })
 
   it('is tick based: one cell per step, one unit per cell, attacks spaced by their tick cost', () => {
     const r = fight('tank,fighter,ranger,mage,healer', 'tank,fighter,fighter,ranger,healer')

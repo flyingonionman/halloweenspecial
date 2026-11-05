@@ -31,6 +31,10 @@ export interface PlacedBuilding {
   pending?: { affinity: Affinity; level: number }
   /** Academies: its essence upkeep couldn't be paid last turn, so it teaches nothing until it is. */
   starved?: boolean
+  /** Academies: consecutive starved turns. */
+  starvedTurns?: number
+  /** Academies: starved too long. Keeps its level, draws no upkeep, teaches nothing until revived. */
+  dormant?: boolean
   /** Trading Post: standing trade routes, paid from every turn's income. */
   routes?: TradeRoute[]
 }
