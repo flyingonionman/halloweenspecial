@@ -83,7 +83,7 @@ export function describe(result: CombatResult, e: CombatEvent): string | null {
   const n = (id: number) => who(result, id)
   switch (e.kind) {
     case 'move':
-      return `${n(e.id)} steps ${cellLabel(result, e.from)} → ${cellLabel(result, e.to)} (${e.ticks} ticks)`
+      return `${n(e.id)} ${e.kite ? 'kites' : 'steps'} ${cellLabel(result, e.from)} → ${cellLabel(result, e.to)} (${e.ticks} ticks)`
     case 'attack':
       return `${n(e.id)} ${e.heal ? 'mends' : e.hex ? 'hexes' : 'attacks'} ${n(e.to)}, lands t${e.lands}`
     case 'cast':

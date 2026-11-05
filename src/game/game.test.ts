@@ -67,6 +67,7 @@ import {
   arena,
   cellDistance,
   F,
+  FLAG,
   FRAME_STRIDE,
   formatSpec,
   lineupUnits,
@@ -463,15 +464,24 @@ describe('combat', () => {
   })
 
   it('rangers kite off adjacent enemies, no faster than the cooldown', () => {
-    const r = fight('ranger', 'fighter')
-    const ids = r.roster.filter((u) => u.type === 'ranger').map((u) => u.id)
-    const A = arena(r.arenaRadius)
-    const moves = r.events.filter((e) => e.kind === 'move' && ids.includes(e.id))
-    expect(moves.length).toBeGreaterThan(0)
-    // A kite step ends farther from the enemy than it began.
-    const enemy = (tick: number) => r.frames[tick]![1 * FRAME_STRIDE + F.cell]!
-    const kites = moves.filter((m) => m.kind === 'move' && cellDistance(A, m.from, enemy(m.t)) <= CONFIG.combat.kiteRange)
-    for (let i = 1; i < kites.length; i++) expect(kites[i]!.t - kites[i - 1]!.t).toBeGreaterThanOrEqual(CONFIG.combat.kiteCooldown)
+    const r = fight('ranger,ranger', 'fighter,fighter')
+    const ranger = new Set(r.roster.filter((u) => u.type === 'ranger').map((u) => u.id))
+    const kites = r.events.flatMap((e) => (e.kind === 'move' && e.kite ? [e] : []))
+    expect(kites.length).toBeGreaterThan(0)
+    for (const k of kites) expect(ranger.has(k.id)).toBe(true)
+    for (const id of ranger) {
+      const ts = kites.filter((k) => k.id === id).map((k) => k.t)
+      for (let i = 1; i < ts.length; i++) expect(ts[i]! - ts[i - 1]!).toBeGreaterThanOrEqual(CONFIG.combat.kiteCooldown)
+    }
+  })
+
+  it('a tank that stands still braces; moving drops it', () => {
+    const r = fight('tank,fighter', 'tank,fighter')
+    const tankIds = r.roster.filter((u) => u.type === 'tank').map((u) => u.id)
+    const braced = (tick: number, id: number) => (r.frames[tick]![id * FRAME_STRIDE + F.flags]! & FLAG.braced) !== 0
+    expect(tankIds.some((id) => r.frames.some((_, tick) => braced(tick, id)))).toBe(true)
+    // Never braced on the tick it just stepped.
+    for (const e of r.events) if (e.kind === 'move' && tankIds.includes(e.id)) expect(braced(e.t, e.id)).toBe(false)
   })
 
   it('is tick based: one cell per step, one unit per cell, attacks spaced by their tick cost', () => {

@@ -119,6 +119,8 @@ export function UnitDetail({
     battle.thorns > 0 ? ['Thorns', pct(battle.thorns)] : null,
     battle.doubleStrike > 0 ? ['Strike again', pct(battle.doubleStrike)] : null,
     battle.lifesteal > 0 ? ['Lifesteal', pct(battle.lifesteal)] : null,
+    battle.kite > 0 && unit.type === 'ranger' ? ['Kite cooldown', `−${pct(battle.kite)}`] : null,
+    battle.brace > 0 && unit.type === 'tank' ? ['Brace', `−${pct(battle.brace)} more damage`] : null,
   ].filter((x): x is [string, string] => !!x)
 
   const body = (
