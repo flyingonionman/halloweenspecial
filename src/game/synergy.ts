@@ -122,5 +122,7 @@ export function combatStats(unit: Unit, synergies: readonly ActiveSynergy[], bon
     doubleStrike: Math.min(0.75, fx.doubleStrike),
     lifesteal: fx.lifesteal,
     chain: Math.min(1, fx.chain),
+    kite: Math.min(0.8, fx.kite),
+    brace: Math.min(0.3, fx.brace),
   }
 }

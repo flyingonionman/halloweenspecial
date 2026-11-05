@@ -120,6 +120,9 @@ interface Fighter {
   weakUntil: number
   atkTicks: number
   stepTicks: number
+  /** Tick of the last step (Brace) and the earliest tick of the next kite. */
+  movedAt: number
+  kiteAt: number
 }
 
 const C = CONFIG.combat
@@ -171,6 +174,8 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
           weakUntil: 0,
           atkTicks: attackTicks(stats.atkSpeed),
           stepTicks: moveTicks(stats.moveSpeed),
+          movedAt: 0,
+          kiteAt: 0,
         }
         occ[cell] = f.id
         units.push(f)
@@ -222,7 +227,7 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
     if (!tgt.alive) return
     const def = kind === 'magic' ? tgt.stats.def * C.magicDefFactor : tgt.stats.def
     const weak = t < src.weakUntil ? 1 - src.weak : 1
-    const amount = raw * weak * overtime() * (100 / (100 + def)) * (1 - tgt.stats.damageReduction) * (crit ? 2 : 1)
+    const amount = raw * weak * overtime() * (100 / (100 + def)) * (1 - tgt.stats.damageReduction) * (tgt.type === 'tank' && t - tgt.movedAt >= C.braceTicks ? 1 - C.braceReduction - tgt.stats.brace : 1) * (crit ? 2 : 1)
     const absorbed = Math.min(tgt.shield, amount)
     tgt.shield -= absorbed
     tgt.hp -= amount - absorbed
@@ -299,6 +304,7 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
     occ[from] = -1
     occ[next] = u.id
     u.cell = next
+    u.movedAt = t
     const ticks = dur(u, u.stepTicks)
     events.push({ t, kind: 'move', id: u.id, from, to: next, ticks })
     u.free = t + ticks
@@ -427,7 +433,35 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
     u.free = t + 1
   }
 
+  /** Kite: step to the free neighbouring cell farthest from the nearest enemy, if that beats where we stand. */
+  const kite = (u: Fighter) => {
+    const foes = enemiesOf(u)
+    const nearest = (c: number) => Math.min(...foes.map((e) => cellDistance(A, c, e.cell)))
+    if (!foes.length || nearest(u.cell) > C.kiteRange) return false
+    let best = -1
+    let bestD = nearest(u.cell)
+    const off = u.team === 0 ? 0 : 3
+    for (let k = 0; k < 6; k++) {
+      const n = A.adj[u.cell]![(k + off) % 6]!
+      if (n === -1 || occ[n] !== -1) continue
+      const d = nearest(n)
+      if (d > bestD) [best, bestD] = [n, d]
+    }
+    if (best === -1) return false
+    const from = u.cell
+    occ[from] = -1
+    occ[best] = u.id
+    u.cell = best
+    u.movedAt = t
+    u.kiteAt = t + Math.round(C.kiteCooldown * (1 - u.stats.kite))
+    const ticks = dur(u, u.stepTicks)
+    events.push({ t, kind: 'move', id: u.id, from, to: best, ticks })
+    u.free = t + ticks
+    return true
+  }
+
   const fighterAct = (u: Fighter) => {
+    if (u.type === 'ranger' && t >= u.kiteAt && kite(u)) return
     const target = pickTarget(u)
     if (!target) return wait(u)
     if (dist(u, target) <= u.stats.range) {

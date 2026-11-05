@@ -89,6 +89,8 @@ export const CONFIG = {
      */
     research: { essence: 2, gold: 2 },
     flowPerLevel: 1,
+    /** An academy starved this many turns running goes dormant: it keeps its level, draws no upkeep, and needs its research cost paid again to wake. */
+    dormantAfter: 2,
     /** Per affinity level: its units' quality rolls skew upward. */
     qualityBiasPerLevel: 0.08,
     /** Per affinity level: its units get this much extra HP and attack in combat. */
@@ -266,6 +268,12 @@ export const CONFIG = {
     /** Magic damage only counts this fraction of the target's defense. */
     magicDefFactor: 0.5,
     slowTicks: 15,
+    /** Kite: a ranger with an enemy this close (cells) steps away, at most once per `kiteCooldown` ticks. */
+    kiteRange: 1,
+    kiteCooldown: 30,
+    /** Brace: a tank that has stood still this many ticks takes `braceReduction` less damage. */
+    braceTicks: 20,
+    braceReduction: 0.2,
     maxDamageReduction: 0.75,
   },
 } as const

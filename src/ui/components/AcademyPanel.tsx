@@ -21,6 +21,8 @@ import {
   flowShortfall,
   netYields,
   pointOdds,
+  reviveAcademy,
+  reviveCost,
   shortfall,
   tileAt,
   type AcademyMove,
@@ -55,7 +57,7 @@ export function FlowChips({ flow, sign = '' }: { flow: Cost; sign?: string }) {
 }
 
 export function AcademyPanel({ hex }: { hex: Hex }) {
-  const [s] = useGame()
+  const [s, dispatch] = useGame()
   const b = tileAt(s.map, hex)!.building!
   const now = b.affinity && b.level > 0 ? { affinity: b.affinity, level: b.level } : null
   const committed = academyCommitment(b)
@@ -78,7 +80,24 @@ export function AcademyPanel({ hex }: { hex: Hex }) {
           Next turn: {b.pending.affinity !== b.affinity ? `${b.affinity ? 'becomes' : 'opens as'} ${article(AFFINITY_LABEL[b.pending.affinity])} academy` : `rises to Lv${b.pending.level}`}.
         </p>
       )}
-      {b.starved && <p className="ac-starved">Starved: last turn's upkeep couldn't be paid, so it teaches nothing. Raise your income of its essences.</p>}
+      {b.dormant ? (
+        <div className="ac-starved">
+          <p>Dormant: starved too long. It keeps its level but teaches nothing and draws no upkeep.</p>
+          <CostChips cost={reviveCost(b)} />
+          <button
+            className="btn btn-small btn-primary"
+            onClick={(e) => {
+              const miss = shortfall(s, reviveCost(b))
+              if (Object.keys(miss).length) return deny(e.currentTarget, `You are missing ${Object.entries(miss).map(([k, v]) => `${v} ${RESOURCE_LABEL[k as keyof typeof RESOURCE_LABEL]}`).join(', ')}.`)
+              dispatch((st) => reviveAcademy(st, hex))
+            }}
+          >
+            Wake
+          </button>
+        </div>
+      ) : (
+        b.starved && <p className="ac-starved">Starved: last turn's upkeep couldn't be paid, so it teaches nothing. Raise your income of its essences.</p>
+      )}
       {committed && (
         <div className="ac-upkeep" data-help="kind:research">
           <span>Upkeep</span>

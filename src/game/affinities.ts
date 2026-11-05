@@ -71,6 +71,8 @@ export const EFFECT_KEYS = [
   'doubleStrike',
   'lifesteal',
   'chain',
+  'kite',
+  'brace',
 ] as const
 export type EffectKey = (typeof EFFECT_KEYS)[number]
 export type Effects = Partial<Record<EffectKey, number>>
@@ -94,6 +96,8 @@ export const EFFECT_TEXT: Record<EffectKey, (v: number) => string> = {
   doubleStrike: (v) => `${pct(v)} chance to strike again`,
   lifesteal: (v) => `heal for ${pct(v)} of damage dealt`,
   chain: (v) => `attacks arc to a nearby enemy for ${pct(v)}`,
+  kite: (v) => `rangers kite with ${pct(v)} less cooldown`,
+  brace: (v) => `braced tanks take a further ${pct(v)} less damage`,
 }
 
 /** City-side bonuses from tier-1 synergies ("resource dripping"). */
@@ -132,13 +136,13 @@ export const AFFINITY_DEFS: Record<Affinity, AffinityDef> = {
   },
   earth: {
     id: 'earth', label: 'Earth', tier: 1, parents: [],
-    combat: { defPct: T(0.05, 0.1, 0.15, 0.22) }, economy: { resource: 'earth', values: T(0.2, 0.4, 0.7, 1) },
+    combat: { defPct: T(0.05, 0.1, 0.15, 0.22), brace: T(0.03, 0.05, 0.08, 0.1) }, economy: { resource: 'earth', values: T(0.2, 0.4, 0.7, 1) },
     flavour: 'Bedrock and patience.',
   },
   wind: {
     id: 'wind', label: 'Wind', tier: 1, parents: [],
     // Attack speed at about half of Storm's, so its tier-2 child still feels like a step up.
-    combat: { moveSpeedPct: T(0.05, 0.1, 0.15, 0.2), atkSpeedPct: T(0.04, 0.08, 0.13, 0.2) }, economy: { resource: 'wind', values: T(0.2, 0.4, 0.7, 1) },
+    combat: { moveSpeedPct: T(0.05, 0.1, 0.15, 0.2), atkSpeedPct: T(0.04, 0.08, 0.13, 0.2), kite: T(0.1, 0.2, 0.3, 0.4) }, economy: { resource: 'wind', values: T(0.2, 0.4, 0.7, 1) },
     flavour: 'Restless and quick: moves and strikes faster.',
   },
   arcane: {
@@ -192,7 +196,7 @@ export const AFFINITY_DEFS: Record<Affinity, AffinityDef> = {
   // ── Tier 3 ─────────────────────────────────────────────────────────
   archery: {
     id: 'archery', label: 'Archery', tier: 3, parents: ['wind', 'weaponry'],
-    combat: { doubleStrike: T(0.1, 0.18, 0.28, 0.4), critChance: T(0.05, 0.1, 0.15, 0.2) },
+    combat: { doubleStrike: T(0.1, 0.18, 0.28, 0.4), critChance: T(0.05, 0.1, 0.15, 0.2), kite: T(0.2, 0.35, 0.5, 0.7) },
     flavour: 'Weapons given to the wind: the bow. Gale-quick volleys.',
   },
   electricity: {
@@ -202,7 +206,7 @@ export const AFFINITY_DEFS: Record<Affinity, AffinityDef> = {
   },
   knighthood: {
     id: 'knighthood', label: 'Knighthood', tier: 3, parents: ['weaponry', 'steel'],
-    combat: { startShield: T(0.1, 0.18, 0.28, 0.4) },
+    combat: { startShield: T(0.1, 0.18, 0.28, 0.4), brace: T(0.05, 0.1, 0.15, 0.2) },
     flavour: 'Sword and plate, sworn to an order.',
   },
   spellblade: {
