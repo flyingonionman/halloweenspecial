@@ -475,6 +475,27 @@ describe('combat', () => {
     }
   })
 
+  it('three chilling hits freeze a foe; fire shatters it for extra damage', () => {
+    const run = (a: string, seed: number) => fight(a, 'tank:rare,tank:rare', seed)
+    const statuses = (r: ReturnType<typeof fight>, s: string) => r.events.filter((e) => e.kind === 'status' && e.status === s)
+    let frozen = 0
+    let shattered = 0
+    for (let seed = 1; seed <= 10; seed++) {
+      frozen += statuses(run('fighter@ice2,fighter@ice2,fighter@fire2', seed), 'frozen').length
+      const r = run('fighter@ice2,fighter@ice2', seed)
+      expect(statuses(r, 'shattered').length).toBe(0) // no fire, nothing breaks the ice
+      shattered += statuses(run('fighter@ice2,fighter@ice2,fighter@fire2', seed), 'shattered').length
+    }
+    expect(frozen).toBeGreaterThan(0)
+    expect(shattered).toBeGreaterThan(0)
+    // A frozen unit never acts while frozen: no attack starts inside a freeze window.
+    const r = run('fighter@ice2,fighter@ice2', 3)
+    for (const f of statuses(r, 'frozen')) {
+      if (f.kind !== 'status') continue
+      for (const e of r.events) if (e.kind === 'attack' && e.id === f.id && e.t > f.t && e.t < f.until) throw new Error(`unit ${f.id} attacked while frozen at t${e.t}`)
+    }
+  })
+
   it('a tank that stands still braces; moving drops it', () => {
     const r = fight('tank,fighter', 'tank,fighter')
     const tankIds = r.roster.filter((u) => u.type === 'tank').map((u) => u.id)

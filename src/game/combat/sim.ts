@@ -58,10 +58,10 @@ export interface RosterEntry {
 export const FRAME_STRIDE = 6
 /** Offsets into a unit's slice of a frame. `target` is a roster id or −1. */
 export const F = { cell: 0, hp: 1, shield: 2, energy: 3, target: 4, flags: 5 } as const
-export const FLAG = { slowed: 1, weakened: 2, taunted: 4, busy: 8, braced: 16 } as const
+export const FLAG = { slowed: 1, weakened: 2, taunted: 4, busy: 8, braced: 16, frozen: 32 } as const
 
 export type HitSource = 'attack' | 'skill' | 'hex' | 'chain' | 'magic' | 'thorns'
-export type StatusId = 'taunted' | 'slowed' | 'weakened'
+export type StatusId = 'taunted' | 'slowed' | 'weakened' | 'frozen' | 'shattered'
 
 /** Every event's `t` is the tick it happened on. */
 export type CombatEvent =
@@ -116,6 +116,13 @@ interface Fighter {
   tauntUntil: number
   slow: number
   slowUntil: number
+  /** Chill stacks (expire at chillUntil), the tick a freeze ends, and when the target may be frozen again. */
+  chill: number
+  chillUntil: number
+  frozenUntil: number
+  /** `free` before the freeze, restored (not before now) when it shatters. */
+  freeBeforeFreeze: number
+  freezeImmuneUntil: number
   weak: number
   weakUntil: number
   atkTicks: number
@@ -170,6 +177,11 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
           tauntUntil: 0,
           slow: 0,
           slowUntil: 0,
+          chill: 0,
+          chillUntil: 0,
+          frozenUntil: 0,
+          freeBeforeFreeze: 0,
+          freezeImmuneUntil: 0,
           weak: 0,
           weakUntil: 0,
           atkTicks: attackTicks(stats.atkSpeed),
@@ -193,6 +205,7 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
   const enemiesOf = (u: Fighter) => units.filter((o) => o.alive && o.team !== u.team)
   const alliesOf = (u: Fighter) => units.filter((o) => o.alive && o.team === u.team)
   const slowed = (u: Fighter) => t < u.slowUntil
+  const frozen = (u: Fighter) => t < u.frozenUntil
   /** An action's ticks, stretched while slowed. */
   const dur = (u: Fighter, ticks: number) => (slowed(u) ? Math.round(ticks / (1 - u.slow)) : ticks)
   const schedule = (at: number, run: () => void) => pending.push({ at, run })
@@ -229,7 +242,14 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
     if (!tgt.alive) return
     const def = kind === 'magic' ? tgt.stats.def * C.magicDefFactor : tgt.stats.def
     const weak = t < src.weakUntil ? 1 - src.weak : 1
-    const amount = raw * weak * overtime() * (100 / (100 + def)) * (1 - tgt.stats.damageReduction) * (braced(tgt) ? 1 - C.braceReduction - tgt.stats.brace : 1) * (crit ? 2 : 1)
+    // Shatter: a fire/magma hit on a frozen target breaks the ice for bonus damage.
+    const shatter = frozen(tgt) && src.stats.shatter > 0 && onHit
+    if (shatter) {
+      tgt.frozenUntil = t
+      tgt.free = Math.max(t + 1, tgt.freeBeforeFreeze)
+      status(tgt, src, 'shattered', t)
+    }
+    const amount = raw * weak * overtime() * (100 / (100 + def)) * (1 - tgt.stats.damageReduction) * (braced(tgt) ? 1 - C.braceReduction - tgt.stats.brace : 1) * (crit ? 2 : 1) * (shatter ? 1 + src.stats.shatter : 1)
     const absorbed = Math.min(tgt.shield, amount)
     tgt.shield -= absorbed
     tgt.hp -= amount - absorbed
@@ -242,6 +262,17 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
         tgt.slow = Math.max(slowed(tgt) ? tgt.slow : 0, src.stats.slowOnHit)
         tgt.slowUntil = t + C.slowTicks
         status(tgt, src, 'slowed', tgt.slowUntil)
+        // Chill: stacks build with each slowing hit; enough of them freeze the target solid.
+        tgt.chill = t < tgt.chillUntil ? tgt.chill + 1 : 1
+        tgt.chillUntil = t + C.chillTicks
+        if (tgt.chill >= C.freezeStacks && t >= tgt.freezeImmuneUntil) {
+          tgt.chill = 0
+          tgt.frozenUntil = t + C.freezeTicks
+          tgt.freezeImmuneUntil = tgt.frozenUntil + C.freezeImmuneTicks
+          tgt.freeBeforeFreeze = tgt.free
+          tgt.free = Math.max(tgt.free, tgt.frozenUntil)
+          status(tgt, src, 'frozen', tgt.frozenUntil)
+        }
       }
       if (tgt.stats.thorns > 0 && src.alive && tgt.hp > 0) damage(tgt, src, amount * tgt.stats.thorns, 'magic', 'thorns', false, false)
     }
@@ -510,6 +541,7 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
         (t < u.weakUntil ? FLAG.weakened : 0) |
         (t < u.tauntUntil && units[u.tauntBy]?.alive ? FLAG.taunted : 0) |
         (u.free > t + 1 ? FLAG.busy : 0) |
+        (u.alive && frozen(u) ? FLAG.frozen : 0) |
         (u.alive && braced(u) ? FLAG.braced : 0)
       f.set([u.cell, u.hp, u.shield, u.energy, u.alive ? u.target : -1, flags], i * FRAME_STRIDE)
     })

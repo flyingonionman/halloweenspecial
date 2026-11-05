@@ -73,6 +73,7 @@ export const EFFECT_KEYS = [
   'chain',
   'kite',
   'brace',
+  'shatter',
 ] as const
 export type EffectKey = (typeof EFFECT_KEYS)[number]
 export type Effects = Partial<Record<EffectKey, number>>
@@ -97,6 +98,7 @@ export const EFFECT_TEXT: Record<EffectKey, (v: number) => string> = {
   lifesteal: (v) => `heal for ${pct(v)} of damage dealt`,
   chain: (v) => `attacks arc to a nearby enemy for ${pct(v)}`,
   kite: (v) => `rangers kite with ${pct(v)} less cooldown`,
+  shatter: (v) => `hits on frozen enemies shatter them for +${pct(v)} damage`,
   brace: (v) => `braced tanks take a further ${pct(v)} less damage`,
 }
 
@@ -126,7 +128,7 @@ export const AFFINITY_DEFS: Record<Affinity, AffinityDef> = {
   // ── Tier 1: the land ───────────────────────────────────────────────
   fire: {
     id: 'fire', label: 'Fire', tier: 1, parents: [],
-    combat: { atkPct: T(0.03, 0.06, 0.09, 0.13) }, economy: { resource: 'fire', values: T(0.2, 0.4, 0.7, 1) },
+    combat: { atkPct: T(0.03, 0.06, 0.09, 0.13), shatter: T(0.15, 0.25, 0.4, 0.6) }, economy: { resource: 'fire', values: T(0.2, 0.4, 0.7, 1) },
     flavour: 'The first flame. Forges, burns, and feeds everything hotter.',
   },
   water: {
@@ -164,7 +166,7 @@ export const AFFINITY_DEFS: Record<Affinity, AffinityDef> = {
   // ── Tier 2 ─────────────────────────────────────────────────────────
   magma: {
     id: 'magma', label: 'Magma', tier: 2, parents: ['fire', 'earth'],
-    combat: { thorns: T(0.1, 0.2, 0.3, 0.45) },
+    combat: { thorns: T(0.1, 0.2, 0.3, 0.45), shatter: T(0.3, 0.5, 0.8, 1.2) },
     flavour: 'Molten stone. Opens the way to weapons and steel.',
   },
   weaponry: {
@@ -180,7 +182,7 @@ export const AFFINITY_DEFS: Record<Affinity, AffinityDef> = {
   ice: {
     id: 'ice', label: 'Ice', tier: 2, parents: ['water', 'wind'],
     combat: { slowOnHit: T(0.1, 0.15, 0.22, 0.3) },
-    flavour: 'Cold that bites and slows.',
+    flavour: 'Cold that bites and slows. Three chilling hits freeze a foe solid; fire or magma shatters it.',
   },
   verdance: {
     id: 'verdance', label: 'Verdance', tier: 2, parents: ['water', 'earth'],

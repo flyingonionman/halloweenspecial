@@ -268,6 +268,11 @@ export const CONFIG = {
     /** Magic damage only counts this fraction of the target's defense. */
     magicDefFactor: 0.5,
     slowTicks: 15,
+    /** Chill: each slowing hit adds a stack (they fade after `chillTicks` without a new one). At `freezeStacks` the target is Frozen for `freezeTicks` (it can't act), then immune for `freezeImmuneTicks`. */
+    chillTicks: 30,
+    freezeStacks: 3,
+    freezeTicks: 15,
+    freezeImmuneTicks: 40,
     /** Kite: a ranger with an enemy this close (cells) steps away, at most once per `kiteCooldown` ticks. */
     kiteRange: 1,
     kiteCooldown: 30,

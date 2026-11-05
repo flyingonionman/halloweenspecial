@@ -124,5 +124,6 @@ export function combatStats(unit: Unit, synergies: readonly ActiveSynergy[], bon
     chain: Math.min(1, fx.chain),
     kite: Math.min(0.8, fx.kite),
     brace: Math.min(0.3, fx.brace),
+    shatter: fx.shatter,
   }
 }

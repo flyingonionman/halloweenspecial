@@ -97,7 +97,7 @@ export function describe(result: CombatResult, e: CombatEvent): string | null {
     case 'shield':
       return `${n(e.id)} shields itself +${e.amount}`
     case 'status':
-      return `${n(e.id)} is ${e.status} by ${n(e.by)} until t${e.until}`
+      return e.status === 'shattered' ? `${n(e.id)} is shattered by ${n(e.by)}` : `${n(e.id)} is ${e.status} by ${n(e.by)} until t${e.until}`
     case 'target':
       return `${n(e.id)} targets ${n(e.to)} (${e.reason})`
     case 'death':

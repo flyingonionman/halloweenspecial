@@ -542,7 +542,7 @@ function Scene({ result, clock, onTick, selected, onSelect, showAggro, overlay }
         shEl.style.width = `${(sh / total) * 100}%`
         ;(el.querySelector('.np-en i') as HTMLElement).style.width = `${(f(r.id, 'energy') / r.maxEnergy) * 100}%`
         const flags = f(r.id, 'flags')
-        const st = `${flags & FLAG.taunted ? '<i class="st-taunt" title="Taunted">!</i>' : ''}${flags & FLAG.slowed ? '<i class="st-slow" title="Slowed">❄</i>' : ''}${flags & FLAG.weakened ? '<i class="st-weak" title="Weakened">↓</i>' : ''}${flags & FLAG.braced ? '<i class="st-brace" title="Braced: takes less damage">⛨</i>' : ''}`
+        const st = `${flags & FLAG.taunted ? '<i class="st-taunt" title="Taunted">!</i>' : ''}${flags & FLAG.slowed ? '<i class="st-slow" title="Slowed">❄</i>' : ''}${flags & FLAG.weakened ? '<i class="st-weak" title="Weakened">↓</i>' : ''}${flags & FLAG.frozen ? '<i class="st-frozen" title="Frozen: cannot act">❆</i>' : ''}${flags & FLAG.braced ? '<i class="st-brace" title="Braced: takes less damage">⛨</i>' : ''}`
         const stEl = el.querySelector('.np-st') as HTMLElement
         if (stEl.dataset.v !== st) {
           stEl.innerHTML = st
