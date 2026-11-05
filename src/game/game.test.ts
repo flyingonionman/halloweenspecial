@@ -19,6 +19,7 @@ import {
   demolish,
   endTurn,
   evaluateBuilding,
+  bannersLeft,
   finishBattle,
   frontier,
   generateMap,
@@ -498,8 +499,17 @@ describe('turns & deeds', () => {
     while (s.phase === 'turn') s = endTurn(s)
     expect(s.phase).toBe('battle')
     expect(s.battle!.outcome.won).toBe(false)
-    // sudden elimination
-    const after = finishBattle(s)
+    // first defeat: a banner falls, morale is sacked, the run goes on
+    const morale = s.morale
+    const first = finishBattle(s)
+    expect(first.phase).toBe('turn')
+    expect(first.round).toBe(1)
+    expect(first.morale).toBeLessThanOrEqual(Math.round(morale * 0.4) + CONFIG.morale.regen + 25)
+    expect(bannersLeft(first)).toBe(1)
+    // second defeat ends it
+    let t = first
+    while (t.phase === 'turn') t = endTurn(t)
+    const after = finishBattle(t)
     expect(after.phase).toBe('over')
     expect(after.victory).toBe(false)
   })
@@ -595,7 +605,7 @@ describe('full runs', () => {
       for (const style of ['tempo', 'synergy'] as BotStyle[]) {
         const s = play(2026, sp, style)
         expect(s.phase).toBe('over')
-        if (s.victory) expect(s.history.every((h) => h.won)).toBe(true)
+        if (s.victory) expect(bannersLeft(s)).toBeGreaterThan(0)
         else expect(s.history.at(-1)!.won).toBe(false)
       }
     }

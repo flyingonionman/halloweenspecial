@@ -9,6 +9,8 @@ export type Rarity = (typeof RARITIES)[number]
 
 export const CONFIG = {
   rounds: 5,
+  /** Banners: lost round battles you can survive before the run ends is banners - 1. */
+  banners: 2,
   turnsPerRound: 10,
   /** Before species modifiers. */
   troopSize: 6,
@@ -140,6 +142,8 @@ export const CONFIG = {
     battleWin: 25,
     raidWin: 10,
     raidLoss: -10,
+    /** Fraction of morale lost when a banner falls (a lost round battle you survive). */
+    sackLoss: 0.6,
   },
 
   economy: {

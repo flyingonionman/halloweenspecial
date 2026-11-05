@@ -19,7 +19,7 @@ Windows + Git Bash. `cd` in Bash trips an fnm hook: run commands from the repo r
 
 ## Current design (as of the last session)
 
-**Run:** pick a species → 5 rounds × (10 turns of city-building → 1 battle vs a ghost). **Sudden elimination:** losing (or drawing) a round battle ends the run. No vitality/HP pool, no score (Glory was removed as meaningless).
+**Run:** pick a species → 5 rounds × (10 turns of city-building → 1 battle vs a ghost). **Two banners (`CONFIG.banners`):** losing (or drawing) a round battle brings a banner down and the city is sacked (morale −60%, `sackLoss`); the run goes on to the next round. Losing the second banner, or the final battle, ends the run. Derived from `history`, no extra state (`bannersLeft`). No vitality/HP pool, no score (Glory was removed as meaningless).
 
 **Each turn:** build, claim border tiles, grow academies (upfront + throughput), trade, raid camps, recruit from the muster. No "deeds"/tasks (removed).
 
