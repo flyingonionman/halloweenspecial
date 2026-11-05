@@ -452,6 +452,16 @@ describe('combat', () => {
 
   const fight = (a: string, b: string, seed = 1) => simulateCombat({ units: lineupUnits(parseLineup(a), 'a') }, { units: lineupUnits(parseLineup(b), 'b') }, seed)
 
+  it('archery and knighthood synergies shorten kite cooldowns and deepen brace', () => {
+    const levels = { archery: 4, wind: 4, weaponry: 4, knighthood: 4, steel: 4, earth: 4 }
+    const mkU = (type: 'ranger' | 'tank', aff: Record<string, number>, i: number) => ({ ...mk({ type }), uid: `s${i}`, affinities: aff })
+    const troop = [mkU('ranger', { archery: 2 }, 0), mkU('tank', { knighthood: 2 }, 1), mkU('tank', {}, 2)]
+    const syn = computeSynergies(troop, levels)
+    expect(combatStats(troop[0]!, syn).kite).toBeGreaterThan(0)
+    expect(combatStats(troop[1]!, syn).brace).toBeGreaterThan(0)
+    expect(combatStats(troop[2]!, syn).brace).toBe(0)
+  })
+
   it('rangers kite off adjacent enemies, no faster than the cooldown', () => {
     const r = fight('ranger', 'fighter')
     const ids = r.roster.filter((u) => u.type === 'ranger').map((u) => u.id)

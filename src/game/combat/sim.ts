@@ -227,7 +227,7 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
     if (!tgt.alive) return
     const def = kind === 'magic' ? tgt.stats.def * C.magicDefFactor : tgt.stats.def
     const weak = t < src.weakUntil ? 1 - src.weak : 1
-    const amount = raw * weak * overtime() * (100 / (100 + def)) * (1 - tgt.stats.damageReduction) * (tgt.type === 'tank' && t - tgt.movedAt >= C.braceTicks ? 1 - C.braceReduction : 1) * (crit ? 2 : 1)
+    const amount = raw * weak * overtime() * (100 / (100 + def)) * (1 - tgt.stats.damageReduction) * (tgt.type === 'tank' && t - tgt.movedAt >= C.braceTicks ? 1 - C.braceReduction - tgt.stats.brace : 1) * (crit ? 2 : 1)
     const absorbed = Math.min(tgt.shield, amount)
     tgt.shield -= absorbed
     tgt.hp -= amount - absorbed
@@ -453,7 +453,7 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
     occ[best] = u.id
     u.cell = best
     u.movedAt = t
-    u.kiteAt = t + C.kiteCooldown
+    u.kiteAt = t + Math.round(C.kiteCooldown * (1 - u.stats.kite))
     const ticks = dur(u, u.stepTicks)
     events.push({ t, kind: 'move', id: u.id, from, to: best, ticks })
     u.free = t + ticks
