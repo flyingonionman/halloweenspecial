@@ -58,7 +58,7 @@ export interface RosterEntry {
 export const FRAME_STRIDE = 6
 /** Offsets into a unit's slice of a frame. `target` is a roster id or −1. */
 export const F = { cell: 0, hp: 1, shield: 2, energy: 3, target: 4, flags: 5 } as const
-export const FLAG = { slowed: 1, weakened: 2, taunted: 4, busy: 8 } as const
+export const FLAG = { slowed: 1, weakened: 2, taunted: 4, busy: 8, braced: 16 } as const
 
 export type HitSource = 'attack' | 'skill' | 'hex' | 'chain' | 'magic' | 'thorns'
 export type StatusId = 'taunted' | 'slowed' | 'weakened'
@@ -66,7 +66,7 @@ export type StatusId = 'taunted' | 'slowed' | 'weakened'
 /** Every event's `t` is the tick it happened on. */
 export type CombatEvent =
   /** A step into the next cell (the cell is taken at once; the walk takes `ticks`). */
-  | { t: number; kind: 'move'; id: number; from: number; to: number; ticks: number }
+  | { t: number; kind: 'move'; id: number; from: number; to: number; ticks: number; kite?: boolean }
   /** An attack starts its swing / projectile; it lands on tick `lands`. `heal` for a healer's mend-bolt. */
   | { t: number; kind: 'attack'; id: number; to: number; lands: number; heal?: boolean; hex?: boolean }
   /** A skill starts; it takes effect on tick `lands` (then a `skill` event lists who it touched). */
@@ -199,6 +199,8 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
   const hpFrac = (u: Fighter) => u.hp / u.stats.hp
   /** Overtime: past `overtimeAfter` ticks, damage ramps up and healing ramps down, so stalls end. */
   const overtime = () => overtimeMult(t)
+  /** Brace: a tank that has stood still long enough. */
+  const braced = (u: Fighter) => u.type === 'tank' && t - u.movedAt >= C.braceTicks
   /** Alive, or fell this very tick: two units that trade lethal blows on the same tick both land them. */
   const active = (u: Fighter) => u.alive || u.diedAt === t
 
@@ -227,7 +229,7 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
     if (!tgt.alive) return
     const def = kind === 'magic' ? tgt.stats.def * C.magicDefFactor : tgt.stats.def
     const weak = t < src.weakUntil ? 1 - src.weak : 1
-    const amount = raw * weak * overtime() * (100 / (100 + def)) * (1 - tgt.stats.damageReduction) * (tgt.type === 'tank' && t - tgt.movedAt >= C.braceTicks ? 1 - C.braceReduction - tgt.stats.brace : 1) * (crit ? 2 : 1)
+    const amount = raw * weak * overtime() * (100 / (100 + def)) * (1 - tgt.stats.damageReduction) * (braced(tgt) ? 1 - C.braceReduction - tgt.stats.brace : 1) * (crit ? 2 : 1)
     const absorbed = Math.min(tgt.shield, amount)
     tgt.shield -= absorbed
     tgt.hp -= amount - absorbed
@@ -455,7 +457,7 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
     u.movedAt = t
     u.kiteAt = t + Math.round(C.kiteCooldown * (1 - u.stats.kite))
     const ticks = dur(u, u.stepTicks)
-    events.push({ t, kind: 'move', id: u.id, from, to: best, ticks })
+    events.push({ t, kind: 'move', id: u.id, from, to: best, ticks, kite: true })
     u.free = t + ticks
     return true
   }
@@ -507,7 +509,8 @@ export function simulateCombat(sideA: CombatSide, sideB: CombatSide, seed: numbe
         (slowed(u) ? FLAG.slowed : 0) |
         (t < u.weakUntil ? FLAG.weakened : 0) |
         (t < u.tauntUntil && units[u.tauntBy]?.alive ? FLAG.taunted : 0) |
-        (u.free > t + 1 ? FLAG.busy : 0)
+        (u.free > t + 1 ? FLAG.busy : 0) |
+        (u.alive && braced(u) ? FLAG.braced : 0)
       f.set([u.cell, u.hp, u.shield, u.energy, u.alive ? u.target : -1, flags], i * FRAME_STRIDE)
     })
     frames.push(f)

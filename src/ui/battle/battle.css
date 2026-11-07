@@ -251,6 +251,10 @@
   color: #c58bff;
 }
 
+.st-brace {
+  color: #f0d27a;
+}
+
 .np.sel .np-row {
   outline: 1px solid #46e0cf;
   box-shadow: 0 0 8px rgba(70, 224, 207, 0.6);
