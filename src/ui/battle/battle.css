@@ -251,6 +251,11 @@
   color: #c58bff;
 }
 
+.st-frozen {
+  color: #7fe7ff;
+  font-weight: 700;
+}
+
 .st-brace {
   color: #f0d27a;
 }
